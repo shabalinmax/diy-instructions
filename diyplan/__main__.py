@@ -59,6 +59,9 @@ def main(argv=None) -> int:
         prj.units = a.units
     fmt = Fmt(prj.lang, prj.units)
     issues = validate(prj)
+    if not errors_of(issues):
+        from .pdf import layout_issues
+        issues += layout_issues(prj)
     errors = errors_of(issues)
     summary = _summary(prj, fmt) if not errors else None
 

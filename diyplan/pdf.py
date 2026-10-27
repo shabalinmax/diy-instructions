@@ -207,7 +207,7 @@ def cover(d: Doc, total_screws: Counter, uses):
     sub = wrap(prj.subtitle, W - 2 * M, 12)[:max(1, int((sub_y - (H - 145)) / 16))]
     para(c, M, sub_y, "\n".join(sub), W - 2 * M, 12)
     iso.draw_scene(c, prj, (M, 330, W - 2 * M, H - 150 - 345), {p.id: "old" for p in prj.parts},
-                   arrows=False, labels=False, extra=30)
+                   arrows=False, labels=False, extra=30, view=prj.cover_view)
     cw = (W - 2 * M - 3 * 10) / 4
     chips = [(f.t("difficulty"), prj.difficulty or "—"), (f.t("time"), prj.time or "—"),
              (f.t("n_parts"), str(len(prj.parts))), (f.t("n_screws"), str(sum(total_screws.values())))]
@@ -218,6 +218,8 @@ def cover(d: Doc, total_screws: Counter, uses):
     buy = [f.t("stock_line", name=name, n=n) for name, n in cutlist.shopping(prj, uses, f)]
     buy += [f.t("confirmat_line" if k[0] == "confirmat" else "screws_line", spec=f.screw(*k), n=n)
             for k, n in sorted(total_screws.items())]
+    hw = Counter(m.name for p in prj.parts for m in p.hardware)
+    buy += [f.t("stock_line", name=name, n=n) for name, n in hw.items()]
     buy += list(prj.extra_materials)
     two_columns(d, 240, (f.t("buy"), buy), (f.t("tools"), list(prj.tools)), col)
     if d.page == 1 and d.y > BOTTOM + 30:
@@ -252,17 +254,44 @@ def two_columns(d: Doc, y0, left, right, col):
 
 # ---------- детали ----------
 
-def part_cell(c, f: Fmt, g, cx, cy, cell_w, cell_h):
-    p = g[0]
+def _hole_label(f: Fmt, h) -> str:
+    if h.shape == "circle":
+        return f"⌀{f.num(h.d)}"
+    return f"{f.num(h.w)}×{f.num(h.h)}"
+
+
+def draw_part_2d(c, f: Fmt, p, x, y, w, h, max_scale=0.6):
+    """Чертёж пласти детали в прямоугольнике (x, y, w, h): контур, габариты, точки резов,
+    проёмы и фурнитура. Координаты — от левого нижнего угла габарита детали.
+    Если проёмов больше одного — их координаты уходят в таблицу под чертежом."""
     fa, fb = p.face_dims
-    draw_w, draw_h = cell_w - 60, cell_h - 100
-    scale = min(draw_w / fa, draw_h / fb, 0.6)
-    rw, rh = fa * scale, fb * scale
-    rx = cx + 28 + (cell_w - 40 - rw) / 2
-    ry = cy + 26 + (cell_h - 100 - rh) / 2
     prof, prof2 = p.profile("-t"), p.profile("+t")
     u0 = min(q[0] for q in prof + prof2)
     v0 = min(q[1] for q in prof + prof2)
+    holes_tab = len(p.holes) > 1 or p.hardware
+    groups = []
+    if holes_tab:
+        for hh in p.holes:
+            key = (hh.name, _hole_label(f, hh))
+            if not groups or groups[-1][0] != key:
+                groups.append((key, []))
+            groups[-1][1].append(hh)
+        hw = {}
+        for m in p.hardware:
+            hw.setdefault(m.name, []).append(m)
+        groups += [((name, "●"), ms) for name, ms in hw.items()]
+    tab_lines = []
+    for (name, lab), items in groups:
+        coords = "  ".join(f"{f.num(i.at[0] - u0)}/{f.num(i.at[1] - v0)}" for i in items)
+        tab_lines += wrap(f"{lab} {name} ×{len(items)}: {coords}", w - 12, 6.5)
+    if tab_lines:
+        tab_lines = tab_lines[:6]
+    tab_h = 9 * len(tab_lines) + (4 if tab_lines else 0)
+    draw_w, draw_h = w - 40, h - 34 - tab_h
+    scale = min(draw_w / fa, draw_h / fb, max_scale)
+    rw, rh = fa * scale, fb * scale
+    rx = x + 26 + (draw_w - rw) / 2
+    ry = y + 22 + tab_h + (draw_h - rh) / 2
     P = lambda q: (rx + (q[0] - u0) * scale, ry + (q[1] - v0) * scale)
     bev = p.bevels()
     if len(prof) != 4 or bev:
@@ -288,36 +317,82 @@ def part_cell(c, f: Fmt, g, cx, cy, cell_w, cell_h):
     corners = {(0, 0), (round(fa), 0), (0, round(fb)), (round(fa), round(fb))}
     pcx = sum(P(q)[0] for q in prof) / len(prof)
     pcy = sum(P(q)[1] for q in prof) / len(prof)
+    placed_labels = []
     for q in prof:
         uu, vv = q[0] - u0, q[1] - v0
         if (round(uu), round(vv)) in corners:
             continue
-        x, y = P(q)
-        dx, dy = x - pcx, y - pcy
+        px, py = P(q)
+        dx, dy = px - pcx, py - pcy
         L = math.hypot(dx, dy) or 1
-        tx, ty = x + dx / L * 6, y + dy / L * 6
+        tx, ty = px + dx / L * 6, py + dy / L * 6 + (0 if dy >= 0 else -6)
+        lab = f"{f.num(uu)} / {f.num(vv)}"
+        lw = c.stringWidth(lab, "DejaVu-Bold", 6.5)
         align = "left" if dx > 3 else "right" if dx < -3 else "center"
-        c.setFillColor(ACCENT); c.circle(x, y, 1.6, fill=1, stroke=0)
-        text(c, tx, ty - (2 if abs(dy) < abs(dx) else 0) + (0 if dy >= 0 else -6), f"{f.num(uu)} / {f.num(vv)}",
-             6.5, bold=True, color=ACCENT, align=align)
-    for h in p.holes:
-        hx, hy = P((h.at[0], h.at[1]))
-        c.setFillColor(HexColor("#3B2A1C"))
-        c.circle(hx, hy, h.d / 2 * scale, fill=1, stroke=0)
-        c.setStrokeColor(ACCENT); c.setLineWidth(0.4); c.setDash(2, 2)
-        c.line(rx, hy, hx, hy)
-        c.line(hx, ry, hx, hy)
-        c.setDash()
-        text(c, hx + h.d / 2 * scale + 3, hy + 2, f"⌀{f.num(h.d)}", 7.5, bold=True, color=ACCENT)
-        text(c, hx + h.d / 2 * scale + 3, hy - 8, f"{f.num(h.at[0] - u0)} / {f.num(h.at[1] - v0)}", 6.5, color=ACCENT)
+        x0 = tx if align == "left" else tx - lw if align == "right" else tx - lw / 2
+        x0 = min(max(x0, x + 2), x + w - lw - 2)            # не вылезать из ячейки
+        while any(abs(ty - yy) < 8 and x0 < xx + ww and xx < x0 + lw for xx, yy, ww in placed_labels):
+            ty -= 8                                         # не наезжать на соседнюю подпись
+        placed_labels.append((x0, ty, lw))
+        c.setFillColor(ACCENT); c.circle(px, py, 1.6, fill=1, stroke=0)
+        text(c, x0, ty, lab, 6.5, bold=True, color=ACCENT)
+    for hh in p.holes:
+        pts = [P((hh.at[0] + du, hh.at[1] + dv)) for du, dv in hh.outline(32)]
+        path = c.beginPath()
+        path.moveTo(*pts[0])
+        for q in pts[1:]:
+            path.lineTo(*q)
+        path.close()
+        c.setFillColor(HexColor("#3B2A1C")); c.drawPath(path, fill=1, stroke=0)
+        if not holes_tab:
+            hx, hy = P(hh.at)
+            c.setStrokeColor(ACCENT); c.setLineWidth(0.4); c.setDash(2, 2)
+            c.line(rx, hy, hx, hy)
+            c.line(hx, ry, hx, hy)
+            c.setDash()
+            rr = hh.radius * scale
+            text(c, hx + rr + 3, hy + 2, _hole_label(f, hh), 7.5, bold=True, color=ACCENT)
+            text(c, hx + rr + 3, hy - 8, f"{f.num(hh.at[0] - u0)} / {f.num(hh.at[1] - v0)}", 6.5, color=ACCENT)
+    for m in p.hardware:
+        hx, hy = P(m.at)
+        c.setFillColor(INK); c.circle(hx, hy, 2.6, fill=1, stroke=0)
+        c.setFillColor(YEL); c.circle(hx, hy, 1.0, fill=1, stroke=0)
     dim_h(c, rx, rx + rw, ry - 10, f.num(fa))
     dim_v(c, rx - 10, ry, ry + rh, f.num(fb))
-    if bev:
-        text(c, cx + 30, cy + cell_h - 49,
-             f.t("bevel_note", angles=", ".join(f.angle(a) for a in sorted(set(bev)))), 6.5, color=ACCENT)
+    ty = y + 4 + tab_h - 9
+    for line in tab_lines:
+        text(c, x + 6, ty, line, 6.5, color=ACCENT)
+        ty -= 9
+
+
+def part_cell(c, f: Fmt, g, cx, cy, cell_w, cell_h):
+    p = g[0]
+    names = wrap(f"{p.name}  ×{len(g)}", cell_w - 34, 10, True)
+    if len(names) > 2:
+        names = names[:1] + [fit_text(c, " ".join(names[1:]), cell_w - 34, 10, True)]
     iso.label(c, cx + 14, cy + cell_h - 22, p.letter, r=10, size=11 if len(p.letter) == 1 else 8)
-    text(c, cx + 30, cy + cell_h - 26, fit_text(c, f"{p.name}  ×{len(g)}", cell_w - 34, 10, True), 10, bold=True)
-    text(c, cx + 30, cy + cell_h - 38, f.t("thickness", t=f.len(p.thickness)), 7.5, color=MUTED)
+    for i, line in enumerate(names):
+        text(c, cx + 30, cy + cell_h - 26 - i * 12, line, 10, bold=True)
+    yy = cy + cell_h - 38 - (len(names) - 1) * 12
+    text(c, cx + 30, yy, f.t("thickness", t=f.len(p.thickness)), 7.5, color=MUTED)
+    bev = p.bevels()
+    if bev:
+        text(c, cx + 30, yy - 11,
+             f.t("bevel_note", angles=", ".join(f.angle(a) for a in sorted(set(bev)))), 6.5, color=ACCENT)
+        yy -= 11
+    draw_part_2d(c, f, p, cx, cy, cell_w, yy - cy - 14)
+
+
+def focus_drawing(d: Doc, pids, box) -> int:
+    """Подготовительный шаг: крупный чертёж детали с размерами вместо изометрии."""
+    x, y, w, h = box
+    parts = [d.prj.part(pid) for pid in pids]
+    n = len(parts)
+    for i, p in enumerate(parts):
+        bw = w / n
+        iso.label(d.c, x + i * bw + 14, y + h - 14, p.letter, r=10, size=11 if len(p.letter) == 1 else 8)
+        draw_part_2d(d.c, d.fmt, p, x + i * bw, y, bw, h - 24, max_scale=1.2)
+    return 0
 
 
 def parts_section(d: Doc):
@@ -335,10 +410,26 @@ def parts_section(d: Doc):
 
 def cut_section(d: Doc, uses):
     c, f, prj = d.c, d.fmt, d.prj
-    d.y -= 14
-    d.need(120)
-    d.heading(f.t("cut_title"), sub=f.t("cut_sub", kerf=f.len(prj.kerf)))
     bar_w = W - 2 * M
+
+    def bar_h(u):
+        st = prj.stock[u.stock_id]
+        sc = bar_w / st.length
+        if st.kind == "sheet":
+            sc = min(sc, 260 / st.width)
+        return st.width * sc
+
+    kinds = {prj.stock[u.stock_id].kind for u in uses}
+    rip = any(prj.stock[u.stock_id].kind == "board" and pl.h < prj.stock[u.stock_id].width - 1
+              for u in uses for pl in u.placed)
+    parts_ = [f.t("cut_sub_kerf", kerf=f.len(prj.kerf))]
+    if "board" in kinds:
+        parts_.append(f.t("cut_sub_rip" if rip else "cut_sub_board"))
+    if "sheet" in kinds:
+        parts_.append(f.t("cut_sub_sheet"))
+    d.y -= 14
+    d.need(70 + (bar_h(uses[0]) + 30 if uses else 0))   # заголовок не остаётся один внизу страницы
+    d.heading(f.t("cut_title"), sub=" ".join(parts_))
     for u in uses:
         st = prj.stock[u.stock_id]
         sc = bar_w / st.length
@@ -374,7 +465,74 @@ def cut_section(d: Doc, uses):
 
 # ---------- шаги ----------
 
-def _step_side(c, d: Doc, si, rx, ry, colw, cur, shown, draw=True):
+def position_dims(prj: Project, new_ids, placed_ids, view: str, fmt: Fmt, limit=3):
+    """Размеры положения: где на соседней детали стоит новая, если её можно сдвинуть
+    вдоль площадки контакта (полка на боковине, цоколь с отступом, перекладина).
+    Возвращает [(a3, b3, off3, подпись_на_рисунке, строка_для_колонки)]."""
+    from . import geom as G
+    from .model import find_contact
+    Rv = iso.view_rot(iso.VIEWS.get(view, 0))
+    out, seen = [], set()
+    for pid in new_ids:
+        p = prj.part(pid)
+        pv = p.poly.verts
+        # оси, по которым положение уже задано упором в соседнюю деталь, — размер не нужен
+        fixed = set()
+        for rid in placed_ids:
+            ct = find_contact(p, prj.part(rid))
+            if ct:
+                ax = max(range(3), key=lambda i: abs(ct.n[i]))
+                if abs(ct.n[ax]) > 0.99:
+                    fixed.add(ax)
+        plo = [min(v[i] for v in pv) for i in range(3)]
+        phi = [max(v[i] for v in pv) for i in range(3)]
+        for qid in placed_ids:
+            q = prj.part(qid)
+            ct = find_contact(p, q)
+            if not ct:
+                continue
+            nax = max(range(3), key=lambda i: abs(ct.n[i]))
+            if abs(ct.n[nax]) < 0.99:
+                continue  # наклонный стык — положение задаёт сама плоскость
+            qv = q.poly.verts
+            qlo = [min(v[i] for v in qv) for i in range(3)]
+            qhi = [max(v[i] for v in qv) for i in range(3)]
+            for k in (2, 1, 0):
+                if k == nax or k in fixed or (pid, k) in seen:
+                    continue
+                inside = plo[k] > qlo[k] + 1 and phi[k] < qhi[k] - 1
+                sticks_out = qlo[k] + 1 < plo[k] < qhi[k] - 1 and phi[k] > qhi[k] + 1   # фронтон на столбиках
+                if inside or sticks_out:
+                    seen.add((pid, k))
+                    off = plo[k] - qlo[k]
+                    corners = [(x, y, z) for x in (plo[0], phi[0]) for y in (plo[1], phi[1]) for z in (plo[2], phi[2])]
+                    corner = max(corners, key=lambda cc: G.dot(G.mat_vec(Rv, cc), iso.VIEW_DIR))
+                    a3 = list(corner); a3[k] = qlo[k]
+                    b3 = list(corner); b3[k] = plo[k]
+                    j = next(i for i in (0, 1, 2) if i not in (k, nax))
+                    ctr = (plo[j] + phi[j]) / 2
+                    o = [0.0, 0.0, 0.0]; o[j] = 40.0 if corner[j] >= ctr else -40.0
+                    line = fmt.t(f"pos_{'xyz'[k]}", p=p.letter, d=fmt.len(off), q=q.letter)
+                    out.append((tuple(a3), tuple(b3), tuple(o), fmt.num(off), line))
+                    if len(out) >= limit:
+                        return out
+    return out
+
+
+def step_dims(prj: Project, st, placed_before, fmt: Fmt, limit=3):
+    """Размеры положения для шага: новые детали — относительно уже стоящих
+    и относительно добавленных раньше в этом же шаге. Одинаковые подписи — один раз."""
+    out, seen = [], set()
+    for i, pid in enumerate(st.add):
+        refs = list(placed_before) + st.add[:i]
+        for dm in position_dims(prj, [pid], refs, st.view, fmt, limit=limit):
+            if dm[4] not in seen and len(out) < limit:
+                seen.add(dm[4])
+                out.append(dm)
+    return out
+
+
+def _step_side(c, d: Doc, si, rx, ry, colw, cur, shown, draw=True, dims=()):
     """Правая колонка шага. Возвращает y под последней строкой."""
     prj, f = d.prj, d.fmt
     st = prj.steps[si]
@@ -399,12 +557,14 @@ def _step_side(c, d: Doc, si, rx, ry, colw, cur, shown, draw=True):
             text(c, rx + 26, ry - 6, f.t("glue"), 10, bold=True)
             text(c, rx + 26, ry - 18, f.t("glue_sub"), 8, color=MUTED)
         ry -= 38
+    for dm in dims:
+        ry = para(c, rx, ry - 2, "↔ " + dm[4], colw, 8.5, color=iso.DIM, bold=True, draw=draw) - 2
+    if dims:
+        ry -= 4
     if cur:
         hidden = len(cur) - shown
-        note = f.t("screw_marks") + (f.t("screw_marks_hidden", n=hidden) if hidden and shown else "")
-        if not shown:
-            note = f.t("screws_hidden_all")
-        ry = para(c, rx, ry - 4, note, colw, 7.5, color=ACCENT, draw=draw) - 6
+        note = (f.t("screw_marks") if shown else "") + (f.t("screw_marks_back") if hidden else "")
+        ry = para(c, rx, ry - 4, note.strip(" ;"), colw, 7.5, color=ACCENT, draw=draw) - 6
     return para(c, rx, ry - 6, st.text, colw, 9.2, draw=draw)
 
 
@@ -418,16 +578,18 @@ def step_block(d: Doc, si: int, box, screws_by_step, placed_before: list[str]):
     cur = screws_by_step.get(si, [])
     old = [s for k, v in screws_by_step.items() if k < si for s in v]
     img_box = (x, y + 26, w * 0.62, h - 56)
+    dims = step_dims(prj, st, placed_before, d.fmt)
     if st.add:
         styles = {pid: "old" for pid in placed_before}
         styles.update({pid: "new" for pid in st.add})
         ref = [prj.part(pid) for pid in styles]
-        shown = iso.draw_scene(c, prj, img_box, styles, cur, old, ref_parts=ref, extra=120, view=st.view)
+        shown = iso.draw_scene(c, prj, img_box, styles, cur, old, ref_parts=ref, extra=120, view=st.view,
+                               dims=[(a, b, o, t) for a, b, o, t, _ in dims])
+    elif st.focus:
+        shown = focus_drawing(d, st.focus, img_box)
     else:
-        styles = {pid: "focus" for pid in st.focus}
-        shown = iso.draw_scene(c, prj, img_box, styles, ref_parts=[prj.part(p) for p in st.focus],
-                               arrows=False, extra=30, view=st.view) if st.focus else 0
-    _step_side(c, d, si, x + w * 0.64, y + h - 60, w * 0.36, cur, shown)
+        shown = 0
+    _step_side(c, d, si, x + w * 0.64, y + h - 60, w * 0.36, cur, shown, dims=dims)
     c.setStrokeColor(LINE); c.setLineWidth(0.6)
     c.line(x, y + 20, x + w, y + 20)
 
@@ -442,7 +604,9 @@ def steps_section(d: Doc, screws_by_step):
     for si, st in enumerate(prj.steps):
         cur = screws_by_step.get(si, [])
         # сколько места просит правая колонка
-        need = TOP - _step_side(c, d, si, 0, TOP - 60, (W - 2 * M) * 0.36, cur, len(cur), draw=False) + 30
+        dims = step_dims(prj, st, placed, d.fmt)
+        need = TOP - _step_side(c, d, si, 0, TOP - 60, (W - 2 * M) * 0.36, cur, len(cur), draw=False,
+                                dims=dims) + 30
         tall = need > half
         if tall and slot == 1:
             d.new_page(); slot = 0
@@ -505,7 +669,9 @@ def tips_section(d: Doc):
     d.need(80)
     d.heading(f.t("safety_title"))
     d.y -= 10
-    items = [f.t("safety_" + flag) for flag in prj.safety] + [f.t("safety_general")]
+    glue = any(st.glue for st in prj.steps)
+    items = [f.t("safety_" + flag + ("" if flag != "outdoor" or glue else "_noglue")) for flag in prj.safety]
+    items += [f.t("safety_general")]
     _bullets(d, f.t("safety_title"), items, mark="▲", fill="#1E1E1E")
     loads_block(d)
     disc = (prj.disclaimer + "\n\n" if prj.disclaimer else "") + f.t("disclaimer")
@@ -532,3 +698,26 @@ def build(prj: Project, out: str):
     steps_section(d, screws_by_step)
     tips_section(d)
     d.save()
+
+
+def layout_issues(prj: Project) -> list:
+    """Тексты, которые не влезут в вёрстку, — предупреждение, а не молчаливая обрезка."""
+    from .model import warn
+    register_fonts()
+    out = []
+    if len(wrap(prj.title, W - 2 * M, 22, True)) > 2:
+        out.append(warn("text_too_long", field="title", max="2"))
+    if prj.subtitle and pdfmetrics.stringWidth(prj.title, "DejaVu-Bold", 34) >= W - 2 * M:
+        max_sub = 1
+    else:
+        max_sub = 2
+    if len(wrap(prj.subtitle, W - 2 * M, 12)) > max_sub:
+        out.append(warn("text_too_long", field="subtitle", max=str(max_sub)))
+    cw = (W - 2 * M - 3 * 10) / 4 - 16
+    for fld in ("difficulty", "time"):
+        if pdfmetrics.stringWidth(getattr(prj, fld) or "", "DejaVu-Bold", 12) > cw:
+            out.append(warn("text_too_long", field=fld, max="1"))
+    for st in prj.steps:
+        if pdfmetrics.stringWidth(st.title, "DejaVu-Bold", 14) > W - 2 * M - 50:
+            out.append(warn("text_too_long", field=f"steps[{st.title[:20]}…].title", max="1"))
+    return out

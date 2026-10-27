@@ -127,21 +127,49 @@ def _hole_points(part: Part, hole, side: int, n=40):
     t = part.thick_axis
     a, b = part.face_axes
     pts = []
-    for i in range(n):
-        ang = 2 * math.pi * i / n
+    for du, dv in hole.outline(n):
         p = [0.0, 0.0, 0.0]
         p[t] = part.size[t] if side > 0 else 0.0
-        p[a] = hole.at[0] + hole.d / 2 * math.cos(ang)
-        p[b] = hole.at[1] + hole.d / 2 * math.sin(ang)
+        p[a] = hole.at[0] + du
+        p[b] = hole.at[1] + dv
         pts.append(part.to_world(tuple(p)))
     return pts
 
 
-def draw_part(c, v: View, part: Part, rpoly: G.Poly, style: str):
+def _face_point(part: Part, at, side: str):
+    t = part.thick_axis
+    a, b = part.face_axes
+    p = [0.0, 0.0, 0.0]
+    p[t] = part.size[t] if side == "+t" else 0.0
+    p[a], p[b] = at
+    e = [0.0, 0.0, 0.0]
+    e[t] = 1.0 if side == "+t" else -1.0
+    return part.to_world(tuple(p)), part.dir_to_world(tuple(e))
+
+
+def draw_hardware(c, v: "View", part: Part):
+    for hw in part.hardware:
+        p, n = _face_point(part, hw.at, hw.side)
+        if not visible(v.n(n)):
+            continue
+        x, y = v.pt(p)
+        c.setFillColor(HexColor("#1E1E1E")); c.setStrokeColor(HexColor("#FFFFFF")); c.setLineWidth(0.8)
+        c.circle(x, y, 3.4, fill=1, stroke=1)
+        c.setFillColor(HexColor("#FFC93C"))
+        c.circle(x, y, 1.3, fill=1, stroke=0)
+
+
+def draw_part(c, v: View, part: Part, rpoly: G.Poly, style: str, ghost: bool = False):
     w = 1.3 if style in ("new", "focus") else 0.8
+    if ghost:  # деталь загораживает новую — рисуем полупрозрачной, с пунктирным контуром
+        c.saveState()
+        c.setFillAlpha(0.28)
+        c.setDash(2, 2)
     for f in rpoly.faces:
         if visible(f.n):
-            _poly(c, [v.rpt(p) for p in f.pts], _shade(style, f.n), width=w)
+            _poly(c, [v.rpt(p) for p in f.pts], _shade(style, f.n), width=0.6 if ghost else w)
+    if ghost:
+        c.restoreState()
     for h in part.holes:
         for side in (1, -1):
             e = [0.0, 0.0, 0.0]
@@ -150,13 +178,48 @@ def draw_part(c, v: View, part: Part, rpoly: G.Poly, style: str):
                 _poly(c, [v.pt(p) for p in _hole_points(part, h, side)], HOLE, width=0.8)
 
 
-def draw_screw_mark(c, v: View, s: Screw, current: bool):
+def draw_screw_mark(c, v: View, s: Screw, current: bool, hidden: bool = False):
     x, y = v.pt(s.point)
+    if hidden:  # вход с невидимой стороны — пустой кружок в том же месте
+        c.setStrokeColor(ACCENT)
+        c.setLineWidth(0.9)
+        c.circle(x, y, 2.4, fill=0, stroke=1)
+        return
     r = 2.6 if current else 1.8
     c.setFillColor(ACCENT if current else HexColor("#8A8A8A"))
     c.setStrokeColor(HexColor("#FFFFFF"))
     c.setLineWidth(0.5)
     c.circle(x, y, r, fill=1, stroke=1)
+
+
+DIM = HexColor("#1F5FBF")
+
+
+def draw_dim(c, v: View, a3, b3, off3, label_text, font="DejaVu-Bold"):
+    """Размерная линия между точками a3 и b3 (мир), вынесенная на off3."""
+    a, b = v.pt(a3), v.pt(b3)
+    a2, b2 = v.pt(G.add(a3, off3)), v.pt(G.add(b3, off3))
+    c.setStrokeColor(DIM); c.setLineWidth(0.5); c.setDash(1.5, 1.5)
+    c.line(*a, *a2); c.line(*b, *b2)
+    c.setDash()
+    c.setLineWidth(0.9)
+    c.line(*a2, *b2)
+    ang = math.atan2(b2[1] - a2[1], b2[0] - a2[0])
+    for (px, py), sgn in ((a2, 1), (b2, -1)):
+        hx, hy = px + sgn * 5 * math.cos(ang), py + sgn * 5 * math.sin(ang)
+        p = c.beginPath()
+        p.moveTo(px, py)
+        p.lineTo(hx + 2 * math.sin(ang), hy - 2 * math.cos(ang))
+        p.lineTo(hx - 2 * math.sin(ang), hy + 2 * math.cos(ang))
+        p.close()
+        c.setFillColor(DIM); c.drawPath(p, fill=1, stroke=0)
+    mx, my = (a2[0] + b2[0]) / 2, (a2[1] + b2[1]) / 2
+    c.setFont(font, 8)
+    w = c.stringWidth(label_text, font, 8) + 6
+    c.setFillColor(HexColor("#FFFFFF")); c.setStrokeColor(DIM); c.setLineWidth(0.6)
+    c.roundRect(mx - w / 2, my - 6, w, 12, 3, fill=1, stroke=1)
+    c.setFillColor(DIM)
+    c.drawCentredString(mx, my - 3, label_text)
 
 
 def arrow(c, p0, p1, color=INK, width=1.6, head=7):
@@ -207,13 +270,39 @@ def label(c, x, y, text, r=9, fill="#1E1E1E", fg="#FFFFFF", font="DejaVu-Bold", 
     c.drawCentredString(x, y - size * 0.36, text)
 
 
+def _bbox2d(pts):
+    return min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts)
+
+
+def _overlap_frac(a, b):
+    """Доля площади a, накрытая b (по габаритам)."""
+    w = min(a[2], b[2]) - max(a[0], b[0])
+    h = min(a[3], b[3]) - max(a[1], b[1])
+    if w <= 0 or h <= 0:
+        return 0.0
+    return w * h / max((a[2] - a[0]) * (a[3] - a[1]), 1e-9)
+
+
 def draw_scene(c, prj: Project, box, styles: dict[str, str], screws_cur=(), screws_old=(),
-               ref_parts=None, arrows=True, labels=True, extra=70, view="front-right") -> int:
-    """Рисует сцену; возвращает число видимых саморезов текущего шага."""
+               ref_parts=None, arrows=True, labels=True, extra=70, view="front-right", dims=()) -> int:
+    """Рисует сцену; возвращает число видимых саморезов текущего шага.
+    dims — размеры положения: (a3, b3, off3, текст)."""
     k = VIEWS.get(view, 0)
     parts = [prj.part(pid) for pid in styles]
     v = View(ref_parts or prj.parts, box, k=k, extra=extra)
     rpolys = [p.poly.transformed(v.Rv) for p in parts]
+    order = draw_order(rpolys)
+
+    # какие старые детали стоят перед новыми и прячут их — их делаем полупрозрачными
+    boxes = [_bbox2d([proj(q) for q in rp.verts]) for rp in rpolys]
+    pos = {i: n for n, i in enumerate(order)}
+    ghosts = set()
+    for i, p in enumerate(parts):
+        if styles[p.id] != "new":
+            continue
+        for j, q in enumerate(parts):
+            if styles[q.id] == "old" and pos[j] > pos[i] and _overlap_frac(boxes[i], boxes[j]) > 0.25:
+                ghosts.add(j)
 
     by_part: dict[str, list] = {}
     for s in screws_old:
@@ -221,13 +310,19 @@ def draw_scene(c, prj: Project, box, styles: dict[str, str], screws_cur=(), scre
     for s in screws_cur:
         by_part.setdefault(s.through, []).append((s, True))
     shown = 0
-    for i in draw_order(rpolys):
+    hidden_cur = []
+    for i in order:
         p = parts[i]
-        draw_part(c, v, p, rpolys[i], styles[p.id])
+        draw_part(c, v, p, rpolys[i], styles[p.id], ghost=i in ghosts)
+        draw_hardware(c, v, p)
         for s, cur in by_part.get(p.id, []):
             if visible(v.n(s.normal)):
                 draw_screw_mark(c, v, s, cur)
                 shown += cur
+            elif cur:
+                hidden_cur.append(s)
+    for s in hidden_cur:  # поверх всего: где саморез входит с обратной стороны
+        draw_screw_mark(c, v, s, True, hidden=True)
 
     placed = [prj.part(pid) for pid, st in styles.items() if st == "old"]
     new = [prj.part(pid) for pid, st in styles.items() if st in ("new", "focus")]
@@ -240,6 +335,8 @@ def draw_scene(c, prj: Project, box, styles: dict[str, str], screws_cur=(), scre
             ctr = p.center
             half = (hi - lo) / 2
             arrow(c, v.pt(G.add(ctr, G.mul(d, half + 140))), v.pt(G.add(ctr, G.mul(d, half + 20))), color=ACCENT)
+    for a3, b3, off3, txt in dims:
+        draw_dim(c, v, a3, b3, off3, txt)
     if labels:
         for p, rp in zip(parts, rpolys):
             if styles[p.id] not in ("new", "focus"):
