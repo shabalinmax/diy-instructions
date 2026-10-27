@@ -137,3 +137,16 @@ def test_offcut_hint_for_mostly_empty_sheet():
     m["stock"] = [{"id": "b20", "kind": "sheet", "name": "Ply", "thickness": 18, "width": 1525, "length": 1525}]
     uses, hints = cutlist.plan_with_hints(load_dict(m))
     assert hints and hints[0].code == "cut_offcut"
+
+
+def test_templates_only_where_useful(example_path):
+    from diyplan.pdf import template_parts
+    prj = load(example_path("birdhouse.json"))
+    ids = {p.id for p, _ in template_parts(prj)}
+    assert "front" in ids                      # леток ⌀50
+    assert "floor" not in ids and "roof" not in ids
+    m = model([box("f", (0, 0, 0), (600, 200, 20), holes=[{"d": 10, "at": [100, 100]}])])
+    assert template_parts(load_dict(m)) == []   # мелкое отверстие сверлят по разметке
+    m["templates"] = False
+    m["parts"][0]["holes"][0]["d"] = 60
+    assert template_parts(load_dict(m)) == []

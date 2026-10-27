@@ -755,6 +755,226 @@ def tips_section(d: Doc):
     d.y = para(c, M + 10, d.y - 6, disc, W - 2 * M - 20, 8.5, leading=8.5 * 1.4, color=MUTED) - 10
 
 
+MM = 72 / 25.4
+TPL_MARGIN = 12 * MM
+
+
+def _template_region(p):
+    """Область шаблона в координатах чертежа (от левого нижнего угла габарита):
+    проёмы, фурнитура и резы с запасом 25 мм, дотянутые до ближайших краёв детали,
+    чтобы шаблон можно было приложить к углу. None — шаблон не нужен."""
+    prof = p.profile("-t")
+    prof2 = p.profile("+t")
+    u0 = min(q[0] for q in prof + prof2)
+    v0 = min(q[1] for q in prof + prof2)
+    fa, fb = p.face_dims
+    # «кромки габарита» считаем по самой пласти -t: скос торца сам по себе шаблона не требует
+    pu0, pu1 = min(q[0] for q in prof) - u0, max(q[0] for q in prof) - u0
+    pv0, pv1 = min(q[1] for q in prof) - v0, max(q[1] for q in prof) - v0
+    pts = []
+    for hh in template_holes(p):
+        pts += [(hh.at[0] + du - u0, hh.at[1] + dv - v0) for du, dv in hh.outline(16)]
+    for m in p.hardware:
+        pts.append((m.at[0] - u0, m.at[1] - v0))
+    on_box = lambda q: abs(q[0]) < 0.5 or abs(q[0] - fa) < 0.5 or abs(q[1]) < 0.5 or abs(q[1] - fb) < 0.5
+    for i in range(len(prof)):
+        a = (prof[i][0] - u0, prof[i][1] - v0)
+        b = (prof[(i + 1) % len(prof)][0] - u0, prof[(i + 1) % len(prof)][1] - v0)
+        same_side = (abs(a[0] - b[0]) < 0.5 and (abs(a[0] - pu0) < 0.5 or abs(a[0] - pu1) < 0.5)) or \
+                    (abs(a[1] - b[1]) < 0.5 and (abs(a[1] - pv0) < 0.5 or abs(a[1] - pv1) < 0.5))
+        if not same_side:      # ребро-рез, а не кромка габарита
+            pts += [a, b]
+    if not pts:
+        return None
+    m = 25.0
+    cu0, cu1 = max(0, min(q[0] for q in pts) - m), min(fa, max(q[0] for q in pts) + m)
+    cv0, cv1 = max(0, min(q[1] for q in pts) - m), min(fb, max(q[1] for q in pts) + m)
+    # шаблон должен касаться хотя бы одного края детали по каждой оси — чтобы было к чему приложить
+    if cu0 > 0.5 and cu1 < fa - 0.5:
+        if cu0 <= fa - cu1:
+            cu0 = 0.0
+        else:
+            cu1 = fa
+    if cv0 > 0.5 and cv1 < fb - 0.5:
+        if cv0 <= fb - cv1:
+            cv0 = 0.0
+        else:
+            cv1 = fb
+    return cu0, cv0, cu1, cv1
+
+
+def template_holes(p):
+    """Проёмы, которым нужен шаблон: фигурные и крупные круглые. Мелкие отверстия сверлят по разметке."""
+    return [h for h in p.holes if h.shape != "circle" or h.d >= 40]
+
+
+def template_parts(prj: Project):
+    if prj.templates is False:
+        return []
+    out = []
+    for g in part_groups(prj):
+        p = g[0]
+        if isinstance(prj.templates, list) and not any(q.id in prj.templates for q in g):
+            continue
+        reg = _template_region(p)
+        if reg:
+            out.append((p, reg))
+    return out
+
+
+TPL_HEAD = 62   # высота шапки шаблона, pt
+
+
+def templates_section(d: Doc, limit_pages=16):
+    """Шаблоны в натуральную величину: печатать в масштабе 100 %, большие — на нескольких листах."""
+    parts = template_parts(d.prj)
+    if not parts:
+        return
+    tw = (W - 2 * TPL_MARGIN) / MM
+    th = (H - 2 * TPL_MARGIN - TPL_HEAD) / MM
+    ov = 10.0
+    pages = 0
+
+    def tiles(region):
+        rw, rh = region[2] - region[0], region[3] - region[1]
+        nx = max(1, math.ceil((rw - ov) / (tw - ov))) if rw > tw else 1
+        ny = max(1, math.ceil((rh - ov) / (th - ov))) if rh > th else 1
+        return nx, ny
+
+    def emit(p, region, hole_only=False):
+        nonlocal pages
+        nx, ny = tiles(region)
+        if pages + nx * ny > limit_pages:
+            return
+        for j in range(ny):
+            for i in range(nx):
+                d.new_page()
+                pages += 1
+                _template_tile(d, p, region, region[0] + i * (tw - ov), region[1] + j * (th - ov),
+                               tw, th, ov, i, j, nx, ny, hole_only=hole_only)
+
+    for p, region in parts:
+        nx, ny = tiles(region)
+        if nx * ny <= 4:
+            emit(p, region)
+            continue
+        # большая деталь: прямые резы проще разметить рулеткой, шаблон — только на проёмы
+        prof = p.profile("-t") + p.profile("+t")
+        u0, v0 = min(q[0] for q in prof), min(q[1] for q in prof)
+        for hh in template_holes(p):
+            r = hh.radius + 15
+            reg = (hh.at[0] - u0 - r, hh.at[1] - v0 - r, hh.at[0] - u0 + r, hh.at[1] - v0 + r)
+            if tiles(reg)[0] * tiles(reg)[1] <= 4:
+                emit(p, reg, hole_only=True)
+
+
+def _template_tile(d, p, region, x0, y0, tw, th, ov, i, j, nx, ny, hole_only=False):
+    c, f = d.c, d.fmt
+    cu0, cv0, cu1, cv1 = region
+    prof, prof2 = p.profile("-t"), p.profile("+t")
+    u0 = min(q[0] for q in prof + prof2)
+    v0 = min(q[1] for q in prof + prof2)
+    fa, fb = p.face_dims
+    ox, oy = TPL_MARGIN - x0 * MM, TPL_MARGIN - y0 * MM
+    P = lambda q: (ox + (q[0] - u0) * MM, oy + (q[1] - v0) * MM)
+    Q = lambda u, v: (ox + u * MM, oy + v * MM)           # координаты чертежа (от угла габарита)
+    # шапка: слева название и как печатать, справа контрольный отрезок и схема листов
+    top = H - TPL_MARGIN
+    iso.label(c, TPL_MARGIN + 10, top - 8, p.letter, r=10, size=11 if len(p.letter) == 1 else 8)
+    head = f.t("tpl_title", name=p.name)
+    if nx * ny > 1:
+        head += " · " + f.t("tpl_tile", k=j * nx + i + 1, n=nx * ny, row=j + 1, col=i + 1)
+    bar = 100.0 if f.units == "mm" else 4 * 25.4
+    right_w = bar * MM + 8
+    left_w = W - 2 * TPL_MARGIN - right_w - 30
+    text(c, TPL_MARGIN + 26, top - 12, fit_text(c, head, W - 2 * TPL_MARGIN - 30, 10, True), 10, bold=True)
+    note = f.t("tpl_print") + " " + (f.t("tpl_hole_only") if hole_only else f.t("tpl_origin"))
+    para(c, TPL_MARGIN, top - 28, note, left_w + 26, 7, color=MUTED)
+    bx, by = W - TPL_MARGIN - bar * MM, top - 32
+    c.setStrokeColor(INK); c.setLineWidth(1)
+    c.line(bx, by, bx + bar * MM, by)
+    for t in (0, 1):
+        c.line(bx + t * bar * MM, by - 4, bx + t * bar * MM, by + 4)
+    text(c, bx + bar * MM / 2, by + 6, f.len(bar), 7.5, bold=True, align="center")
+    if nx * ny > 1:
+        s = 7
+        for jj in range(ny):
+            for ii in range(nx):
+                c.setFillColor(YEL if (ii, jj) == (i, j) else HexColor("#FFFFFF"))
+                c.setStrokeColor(MUTED); c.setLineWidth(0.4)
+                c.rect(bx + ii * s, by - 14 - (ny - jj) * s, s, s, fill=1, stroke=1)
+    # поле: только область шаблона на этом листе
+    vx0, vy0 = max(x0, cu0), max(y0, cv0)
+    vx1, vy1 = min(x0 + tw, cu1), min(y0 + th, cv1)
+    fx, fy = Q(vx0, vy0)
+    fw, fh = (vx1 - vx0) * MM, (vy1 - vy0) * MM
+    c.saveState()
+    clip = c.beginPath(); clip.rect(fx, fy, fw, fh)
+    c.clipPath(clip, stroke=0, fill=0)
+    c.setFillColor(HexColor("#EEF3FB"))
+    if i > 0:
+        c.rect(fx, fy, ov * MM, fh, fill=1, stroke=0)
+    if j > 0:
+        c.rect(fx, fy, fw, ov * MM, fill=1, stroke=0)
+    path = c.beginPath(); path.moveTo(*P(prof[0]))
+    for q in prof[1:]:
+        path.lineTo(*P(q))
+    path.close()
+    c.setFillColor(HexColor("#FBF6EC")); c.setStrokeColor(INK); c.setLineWidth(1.4)
+    c.drawPath(path, fill=1, stroke=1)
+    if p.bevels():
+        path = c.beginPath(); path.moveTo(*P(prof2[0]))
+        for q in prof2[1:]:
+            path.lineTo(*P(q))
+        path.close()
+        c.setStrokeColor(ACCENT); c.setLineWidth(0.6); c.setDash(4, 3)
+        c.drawPath(path, fill=0, stroke=1)
+        c.setDash()
+    for q in prof:  # координаты точек реза
+        uu, vv = q[0] - u0, q[1] - v0
+        if (round(uu), round(vv)) not in {(0, 0), (round(fa), 0), (0, round(fb)), (round(fa), round(fb))}:
+            x, y = P(q)
+            _crosshair(c, x, y, 4 * MM)
+            text(c, x + (2 * MM if uu < fa / 2 else -2 * MM), y - 4 * MM, f"{f.num(uu)} / {f.num(vv)}", 7,
+                 bold=True, color=ACCENT, align="left" if uu < fa / 2 else "right")
+    for hh in p.holes:
+        pts = [P((hh.at[0] + du, hh.at[1] + dv)) for du, dv in hh.outline(72)]
+        path = c.beginPath(); path.moveTo(*pts[0])
+        for q in pts[1:]:
+            path.lineTo(*q)
+        path.close()
+        c.setStrokeColor(INK); c.setLineWidth(0.9); c.drawPath(path, fill=0, stroke=1)
+        hx, hy = P(hh.at)
+        _crosshair(c, hx, hy, 6 * MM)
+        text(c, hx + 2 * MM, hy + 2 * MM,
+             f"{_hole_label(f, hh)}  {f.num(hh.at[0] - u0)} / {f.num(hh.at[1] - v0)}", 7, bold=True, color=ACCENT)
+    for m in p.hardware:
+        hx, hy = P(m.at)
+        _crosshair(c, hx, hy, 4 * MM)
+        text(c, hx + 2 * MM, hy - 4 * MM, f"{m.name}  {f.num(m.at[0] - u0)} / {f.num(m.at[1] - v0)}", 7,
+             color=ACCENT)
+    c.restoreState()
+    # где деталь продолжается за шаблоном — волнистый обрыв и подпись
+    c.setStrokeColor(MUTED); c.setLineWidth(0.6); c.setDash(5, 3)
+    for edge, cut in (("l", vx0 > 0.5), ("r", vx1 < fa - 0.5), ("b", vy0 > 0.5), ("t", vy1 < fb - 0.5)):
+        if not cut:
+            continue
+        if edge in "lr":
+            x = fx if edge == "l" else fx + fw
+            c.line(x, fy, x, fy + fh)
+        else:
+            y = fy if edge == "b" else fy + fh
+            c.line(fx, y, fx + fw, y)
+    c.setDash()
+
+
+def _crosshair(c, x, y, r):
+    c.setStrokeColor(ACCENT); c.setLineWidth(0.5)
+    c.line(x - r, y, x + r, y)
+    c.line(x, y - r, x, y + r)
+    c.circle(x, y, 0.6 * MM, fill=0, stroke=1)
+
+
 def build(prj: Project, out: str):
     register_fonts()
     fmt = Fmt(prj.lang, prj.units)
@@ -769,6 +989,7 @@ def build(prj: Project, out: str):
     cut_section(d, uses, hints)
     steps_section(d, screws_by_step)
     tips_section(d)
+    templates_section(d)
     d.save()
 
 

@@ -287,6 +287,7 @@ class Project:
     gaps_ok: list = field(default_factory=list)   # пары деталей, между которыми зазор задуман
     cover_view: str = "front-right"
     currency: str = ""
+    templates: object = True   # True — авто; False — без шаблонов; [ids] — только эти детали
 
     def part(self, pid: str) -> Part:
         for p in self.parts:
@@ -566,6 +567,7 @@ def load_dict(raw: dict) -> Project:
         safety=list(raw.get("safety", [])),
         fastener=raw.get("fastener", "auto"), gaps_ok=raw.get("gaps_ok", []),
         cover_view=raw.get("cover_view", "front-right"), currency=raw.get("currency", ""),
+        templates=raw.get("templates", True),
     )
     if not errors:
         _apply_snaps(prj)
