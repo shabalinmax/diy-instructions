@@ -90,13 +90,13 @@ def plan(prj: Project) -> list[StockUse]:
     return uses
 
 
-def shopping(prj: Project, uses: list[StockUse]) -> list[tuple[str, int]]:
+def shopping(prj: Project, uses: list[StockUse], fmt=None) -> list[tuple[str, int]]:
     counts: dict[str, int] = {}
     for u in uses:
         counts[u.stock_id] = counts.get(u.stock_id, 0) + 1
     out = []
     for sid, n in counts.items():
         st = prj.stock[sid]
-        dims = f"{st.thickness:g}×{st.width:g}×{st.length:g} мм"
+        dims = fmt.dims(st.thickness, st.width, st.length) if fmt else f"{st.thickness:g}×{st.width:g}×{st.length:g} мм"
         out.append((f"{st.name}, {dims}", n))
     return out

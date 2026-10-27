@@ -24,23 +24,28 @@ ACCENT = HexColor("#D9381E")
 WOOD = HexColor("#F4E6CB")
 YEL = HexColor("#FFC93C")
 
+FONT_DIR = os.path.join(os.path.dirname(__file__), "fonts")
 FONT_CANDIDATES = [
+    (os.path.join(FONT_DIR, "DejaVuSans.ttf"), os.path.join(FONT_DIR, "DejaVuSans-Bold.ttf")),
     ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
     ("/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"),
-    ("/Library/Fonts/Arial Unicode.ttf", "/Library/Fonts/Arial Unicode.ttf"),
-    ("/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
-    ("C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arialbd.ttf"),
 ]
+_fonts_ready = False
 
 
 def register_fonts():
+    """Шрифт с кириллицей лежит в пакете; DIYPLAN_FONT / DIYPLAN_FONT_BOLD — чтобы подменить."""
+    global _fonts_ready
+    if _fonts_ready:
+        return
     env = os.environ.get("DIYPLAN_FONT"), os.environ.get("DIYPLAN_FONT_BOLD")
     for reg, bold in ([env] if env[0] else []) + FONT_CANDIDATES:
         if reg and os.path.exists(reg) and os.path.exists(bold or reg):
             pdfmetrics.registerFont(TTFont("DejaVu", reg))
             pdfmetrics.registerFont(TTFont("DejaVu-Bold", bold or reg))
+            _fonts_ready = True
             return
-    raise SystemExit("Не найден шрифт с кириллицей. Укажите путь в DIYPLAN_FONT / DIYPLAN_FONT_BOLD.")
+    raise SystemExit("Font with Cyrillic glyphs not found. Set DIYPLAN_FONT / DIYPLAN_FONT_BOLD.")
 
 
 # ---------- примитивы ----------

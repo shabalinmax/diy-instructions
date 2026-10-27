@@ -1,46 +1,100 @@
-"""CLI: python -m diyplan check model.json | python -m diyplan build model.json -o out.pdf"""
+"""CLI.
+
+    diyplan check model.json [--json]
+    diyplan build model.json -o out.pdf [--force]
+    diyplan preview model.json -o pages/      # PNG страниц для самопроверки (нужен pdftoppm)
+"""
+from __future__ import annotations
+
 import argparse
+import json
+import os
+import shutil
+import subprocess
 import sys
 from collections import Counter
 
-from . import cutlist
-from .model import load, plan_screws, validate
+from . import __version__, cutlist
+from .i18n import Fmt
+from .model import errors_of, load, plan_screws, validate
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(prog="diyplan", description="JSON-модель изделия → PDF-инструкция по сборке")
+def _summary(prj, fmt: Fmt) -> dict:
+    screws = Counter(s.spec for v in plan_screws(prj).values() for s in v)
+    uses = cutlist.plan(prj)
+    return {
+        "parts": len(prj.parts),
+        "steps": len(prj.steps),
+        "stock": [{"name": name, "count": n} for name, n in cutlist.shopping(prj, uses, fmt)],
+        "screws": [{"spec": spec, "count": n} for spec, n in sorted(screws.items())],
+    }
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="diyplan", description="JSON model → validated assembly-instruction PDF")
+    ap.add_argument("--version", action="version", version=f"diyplan {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    ck = sub.add_parser("check", help="проверить модель и показать сводку")
-    ck.add_argument("model")
-    bd = sub.add_parser("build", help="собрать PDF")
-    bd.add_argument("model")
-    bd.add_argument("-o", "--out", default="instruction.pdf")
-    bd.add_argument("--force", action="store_true", help="собрать даже с ошибками")
+    for name in ("check", "build", "preview"):
+        sp = sub.add_parser(name)
+        sp.add_argument("model")
+        sp.add_argument("--lang", choices=["ru", "en"], help="переопределить язык модели")
+        sp.add_argument("--units", choices=["mm", "in"], help="единицы вывода")
+        sp.add_argument("--json", action="store_true", help="машиночитаемый вывод")
+        if name != "check":
+            sp.add_argument("-o", "--out", default="instruction.pdf" if name == "build" else "preview")
+            sp.add_argument("--force", action="store_true", help="собрать даже с ошибками")
     a = ap.parse_args(argv)
 
     prj = load(a.model)
-    errors, warnings = validate(prj)
-    for e in errors:
-        print(f"ОШИБКА: {e}")
-    for w in warnings:
-        print(f"Внимание: {w}")
+    if a.lang:
+        prj.lang = a.lang
+    if a.units:
+        prj.units = a.units
+    fmt = Fmt(prj.lang, prj.units)
+    issues = validate(prj)
+    errors = errors_of(issues)
+    summary = _summary(prj, fmt) if not errors else None
 
-    if not errors:
-        screws = Counter(s.spec for v in plan_screws(prj).values() for s in v)
-        uses = cutlist.plan(prj)
-        print(f"OK: {len(prj.parts)} деталей, {len(prj.steps)} шагов")
-        for name, n in cutlist.shopping(prj, uses):
-            print(f"  {name} — {n} шт")
-        for spec, n in sorted(screws.items()):
-            print(f"  саморез {spec} — {n} шт")
+    if a.json:
+        report = {"ok": not errors, "issues": [i.as_dict(fmt) for i in issues], "summary": summary}
+    else:
+        for i in issues:
+            print(f"{fmt.t('error' if i.level == 'error' else 'warning')}: {i.message(fmt)}")
+        if summary:
+            print(fmt.t("summary_ok", parts=summary["parts"], steps=summary["steps"]))
+            for s in summary["stock"]:
+                print(f"  {s['name']} — {s['count']} {fmt.t('pcs')}")
+            for s in summary["screws"]:
+                print(f"  {fmt.t('screw')} {s['spec']} — {s['count']} {fmt.t('pcs')}")
 
-    if a.cmd == "build":
+    if a.cmd in ("build", "preview"):
         if errors and not a.force:
-            print("PDF не собран: сначала исправьте ошибки.")
+            if a.json:
+                print(json.dumps(report, ensure_ascii=False, indent=2))
+            else:
+                print(fmt.t("not_built"))
             return 1
         from .pdf import build
-        build(prj, a.out)
-        print(f"PDF: {a.out}")
+        pdf_path = a.out if a.cmd == "build" else os.path.join(a.out, "instruction.pdf")
+        if a.cmd == "preview":
+            os.makedirs(a.out, exist_ok=True)
+        build(prj, pdf_path)
+        pages = []
+        if a.cmd == "preview":
+            if not shutil.which("pdftoppm"):
+                print("pdftoppm not found (poppler-utils) — PNG preview skipped", file=sys.stderr)
+            else:
+                subprocess.run(["pdftoppm", "-r", "60", "-png", pdf_path, os.path.join(a.out, "page")], check=True)
+                pages = sorted(f for f in os.listdir(a.out) if f.endswith(".png"))
+        if a.json:
+            report["pdf"] = pdf_path
+            report["pages"] = [os.path.join(a.out, p) for p in pages]
+        else:
+            print(f"PDF: {pdf_path}")
+            for p in pages:
+                print(f"  {os.path.join(a.out, p)}")
+    if a.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
     return 1 if errors else 0
 
 

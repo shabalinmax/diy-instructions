@@ -1,0 +1,4 @@
+reportlab>=4.0
+
+[dev]
+pytest>=8
