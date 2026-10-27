@@ -511,68 +511,192 @@ def _std_length(need: float) -> int:
     return SCREW_LENGTHS[-1]
 
 
-def screws_for(prj: Project, c: Contact, newer: str | None = None) -> list[Screw]:
-    """Саморез идёт сквозь деталь, которая касается соседа своей пластью, в торец/пласть соседа."""
+# Правила крепежа (ориентиры для саморезов по дереву):
+EDGE_MIN = 15.0        # мм от торца площадки до самореза
+NARROW_WARN = 12.0     # кромка уже — саморез может расколоть
+NARROW_SKIP = 8.0      # кромка уже — саморез не ставим
+MIN_EMBED = 15.0       # минимальное заглубление во вторую деталь
+CLEAR = 3.0            # зазор между телами саморезов
+NUDGES = (0, 8, -8, 16, -16, 24, -24, 32, -32)
+
+
+@dataclass
+class Slot:
+    """Площадка стыка, вдоль которой ставим ряд саморезов."""
+    c: Contact
+    t: Part            # сквозь неё
+    f: Part            # в неё
+    n_t: tuple         # от t к f
+    centroid: tuple
+    e1: tuple          # длинная ось площадки
+    lo: float
+    hi: float
+    short: float       # ширина площадки поперёк ряда
+
+
+def joint_slot(prj: Project, c: Contact, newer: str | None = None) -> Slot | None:
     a, b = prj.part(c.a), prj.part(c.b)
     if (a.fasten_to and b.id not in a.fasten_to) or (b.fasten_to and a.id not in b.fasten_to):
-        return []
+        return None
     cands = []
     if c.tag_a in ("+t", "-t"):
         cands.append(a)
     if c.tag_b in ("+t", "-t"):
         cands.append(b)
     if not cands:
-        return []
+        return None
     t = cands[0]
     if len(cands) == 2 and newer in (a.id, b.id):
         t = prj.part(newer)
     f = b if t is a else a
-    n_t = c.n if t is a else G.mul(c.n, -1)  # от t к f
-
+    n_t = c.n if t is a else G.mul(c.n, -1)
     centroid, e1, e2 = G.principal_axis(c.pts, n_t)
-    proj1 = [G.dot(G.sub(p, centroid), e1) for p in c.pts]
-    lo, hi = min(proj1), max(proj1)
-    L = hi - lo
-    if t.removable or f.removable:
-        n = 2 if L >= 60 else 1
-    else:
-        n = 1 if L < 60 else max(2, round(L / 120) + 1)
-    inset = min(25.0, L / 4)
-    positions = [(lo + hi) / 2] if n == 1 else [lo + inset + k * (L - 2 * inset) / (n - 1) for k in range(n)]
+    p1 = [G.dot(G.sub(p, centroid), e1) for p in c.pts]
+    p2 = [G.dot(G.sub(p, centroid), e2) for p in c.pts]
+    return Slot(c, t, f, n_t, centroid, e1, min(p1), max(p1), max(p2) - min(p2))
 
-    plane_d = G.dot(n_t, c.pts[0])
-    depth = f.poly.extent(n_t)[1] - plane_d
-    length = _std_length(t.thickness + min(max(depth - 5, 10), 30))
-    dia = 3.5 if t.thickness <= 25 else 4.0
-    res = []
-    for s in positions:
-        p = G.add(centroid, G.mul(e1, s))
-        if not G.point_in_convex(c.pts, p, c.n):
-            continue
-        entry = G.sub(p, G.mul(n_t, t.thickness))
-        res.append(Screw(t.id, f.id, entry, G.mul(n_t, -1), dia, length))
-    return res
+
+def _diameter(t: Part) -> float:
+    return 3.0 if t.thickness <= 12 else 3.5 if t.thickness <= 25 else 4.0
+
+
+def _screw_at(slot: Slot, s: float) -> tuple | None:
+    """Точка ряда → (точка на площадке, доступная глубина в детали f)."""
+    p = G.add(slot.centroid, G.mul(slot.e1, s))
+    if not G.point_in_convex(slot.c.pts, p, slot.c.n):
+        return None
+    depth = G.ray_exit(slot.f.poly, p, slot.n_t)
+    return p, depth
+
+
+def _make_screw(slot: Slot, p, depth) -> Screw | None:
+    t = slot.t
+    d = _diameter(t)
+    room = depth - 3.0
+    if room < MIN_EMBED:
+        return None
+    length = None
+    for L in SCREW_LENGTHS:  # самый длинный стандартный, что влезает, но не больше «толщина + 30»
+        if L - t.thickness <= min(room, 30) and L - t.thickness >= MIN_EMBED:
+            length = L
+    if length is None:
+        return None
+    entry = G.sub(p, G.mul(slot.n_t, t.thickness))
+    return Screw(t.id, slot.f.id, entry, G.mul(slot.n_t, -1), d, length)
+
+
+def _shaft(s: Screw):
+    return s.point, G.sub(s.point, G.mul(s.normal, s.length))
+
+
+def _hole_axes(prj: Project):
+    """Оси отверстий в мире: (деталь, имя, начало, конец, радиус)."""
+    out = []
+    for p in prj.parts:
+        e = [0.0, 0.0, 0.0]
+        e[p.thick_axis] = p.size[p.thick_axis]
+        a, b = p.face_axes
+        for h in p.holes:
+            q = [0.0, 0.0, 0.0]
+            q[a], q[b] = h.at
+            out.append((p.id, h.name, p.to_world(tuple(q)), p.to_world(tuple(G.add(tuple(q), tuple(e)))), h.d / 2))
+    return out
 
 
 def plan_screws(prj: Project, issues: list | None = None) -> dict[int, list[Screw]]:
+    """Расставить саморезы по шагам: ряд по каждой площадке стыка, с отступами от краёв,
+    без встреч с уже стоящими саморезами и отверстиями, без выхода насквозь."""
+    def note(i):
+        if issues is not None:
+            issues.append(i)
+
     placed: set[str] = set()
     per_step: dict[int, list[Screw]] = {}
     contacts = all_contacts(prj)
+    holes = _hole_axes(prj)
+    accepted: list[Screw] = []
     for si, st in enumerate(prj.steps):
         new = set(st.add)
-        cur = []
+        cur: list[Screw] = []
         for c in contacts:
             ids = {c.a, c.b}
-            if ids & new and ids <= (placed | new):
-                newer = next(iter(ids & new)) if len(ids & new) == 1 else None
-                got = screws_for(prj, c, newer)
-                if not got and issues is not None:
-                    a, b = prj.part(c.a), prj.part(c.b)
-                    if not (a.fasten_to or b.fasten_to):
-                        issues.append(warn("joint_glue_only", [c.a, c.b], a=c.a, b=c.b))
-                cur += got
+            if not (ids & new and ids <= (placed | new)):
+                continue
+            newer = next(iter(ids & new)) if len(ids & new) == 1 else None
+            slot = joint_slot(prj, c, newer)
+            if slot is None:
+                a, b = prj.part(c.a), prj.part(c.b)
+                if not (a.fasten_to or b.fasten_to):
+                    note(warn("joint_glue_only", [c.a, c.b], a=c.a, b=c.b))
+                continue
+            if slot.short < NARROW_SKIP:
+                note(warn("screw_short_joint", [c.a, c.b], a=c.a, b=c.b, w=Mm(slot.short)))
+                continue
+            if slot.short < NARROW_WARN:
+                note(warn("screw_near_edge", [slot.f.id], a=c.a, b=c.b, part=slot.f.id, m=Mm(NARROW_WARN)))
+
+            L = slot.hi - slot.lo
+            inset = EDGE_MIN if L >= 2 * EDGE_MIN + 1 else L / 2
+            usable = L - 2 * inset
+            if slot.t.removable or slot.f.removable:
+                n = 2 if usable >= 40 else 1
+            else:
+                n = 1 if usable < 40 else max(2, round(usable / 120) + 1)
+            base = [(slot.lo + slot.hi) / 2] if n == 1 else \
+                [slot.lo + inset + k * usable / (n - 1) for k in range(n)]
+
+            got = 0
+            for s0 in base:
+                done = False
+                reason = None
+                for dz in NUDGES:
+                    s = s0 + dz
+                    if s < slot.lo + inset - 1e-6 or s > slot.hi - inset + 1e-6:
+                        continue
+                    at = _screw_at(slot, s)
+                    if not at:
+                        continue
+                    scr = _make_screw(slot, *at)
+                    if scr is None:
+                        reason = reason or ("deep", at[1])
+                        continue
+                    a0, a1 = _shaft(scr)
+                    clash = next((o for o in accepted + cur
+                                  if G.seg_seg_distance(a0, a1, *_shaft(o)) < (scr.d + o.d) / 2 + CLEAR), None)
+                    if clash:
+                        reason = ("clash", clash)
+                        continue
+                    hole = next((h for h in holes
+                                 if G.seg_seg_distance(a0, a1, h[2], h[3]) < h[4] + scr.d / 2 + 2), None)
+                    if hole:
+                        reason = ("hole", hole)
+                        continue
+                    cur.append(scr)
+                    got += 1
+                    done = True
+                    break
+                if not done and reason:
+                    kind = reason[0]
+                    if kind == "deep":
+                        note(warn("screw_too_long", [slot.f.id], a=c.a, b=c.b, part=slot.f.id,
+                                  t=Mm(max(reason[1], 0))))
+                    elif kind == "clash":
+                        o = reason[1]
+                        note(warn("screw_clash", [slot.f.id], a=c.a, b=c.b, part=slot.f.id,
+                                  c=o.through, d=o.into))
+                    else:
+                        note(warn("screw_in_hole", [reason[1][0]], a=c.a, b=c.b, hole=reason[1][1]))
         per_step[si] = cur
+        accepted += cur
         placed |= new
+    if issues is not None:  # одинаковые предупреждения — один раз
+        seen, uniq = set(), []
+        for i in issues:
+            k = (i.level, i.code, i.params.get("a"), i.params.get("b"), str(i.params.get("hole", "")))
+            if k not in seen:
+                seen.add(k)
+                uniq.append(i)
+        issues[:] = uniq
     return per_step
 
 

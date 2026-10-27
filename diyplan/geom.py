@@ -361,3 +361,37 @@ def point_in_convex(pts3, p, n):
         if dot(cross(sub(b, a), sub(p, a)), n) < -1e-6:
             return False
     return True
+
+
+def seg_seg_distance(p1, q1, p2, q2):
+    """Кратчайшее расстояние между отрезками p1q1 и p2q2."""
+    d1, d2, r = sub(q1, p1), sub(q2, p2), sub(p1, p2)
+    a, e, f = dot(d1, d1), dot(d2, d2), dot(d2, r)
+    if a <= 1e-12 and e <= 1e-12:
+        return norm(r)
+    if a <= 1e-12:
+        s, t = 0.0, min(max(f / e, 0.0), 1.0)
+    else:
+        c = dot(d1, r)
+        if e <= 1e-12:
+            t, s = 0.0, min(max(-c / a, 0.0), 1.0)
+        else:
+            b = dot(d1, d2)
+            den = a * e - b * b
+            s = min(max((b * f - c * e) / den, 0.0), 1.0) if den > 1e-12 else 0.0
+            t = (b * s + f) / e
+            if t < 0:
+                t, s = 0.0, min(max(-c / a, 0.0), 1.0)
+            elif t > 1:
+                t, s = 1.0, min(max((b - c) / a, 0.0), 1.0)
+    return norm(sub(add(p1, mul(d1, s)), add(p2, mul(d2, t))))
+
+
+def ray_exit(poly: "Poly", p, u):
+    """Сколько пройдёт луч из точки p (внутри или на границе) по направлению u до выхода из тела."""
+    best = math.inf
+    for pl in poly.planes:
+        s = dot(pl.n, u)
+        if s > 1e-9:
+            best = min(best, (pl.d - dot(pl.n, p)) / s)
+    return best
