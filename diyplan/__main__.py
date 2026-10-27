@@ -20,13 +20,14 @@ from .model import errors_of, load, plan_screws, validate
 
 
 def _summary(prj, fmt: Fmt) -> dict:
-    screws = Counter(s.spec for v in plan_screws(prj).values() for s in v)
+    screws = Counter(s.key for v in plan_screws(prj).values() for s in v)
     uses = cutlist.plan(prj)
     return {
         "parts": len(prj.parts),
         "steps": len(prj.steps),
         "stock": [{"name": name, "count": n} for name, n in cutlist.shopping(prj, uses, fmt)],
-        "screws": [{"spec": spec, "count": n} for spec, n in sorted(screws.items())],
+        "screws": [{"spec": fmt.screw(*k), "diameter_mm": k[0], "length_mm": k[1], "count": n}
+                   for k, n in sorted(screws.items())],
     }
 
 

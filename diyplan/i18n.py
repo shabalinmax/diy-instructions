@@ -35,6 +35,14 @@ class Fmt:
     def dims(self, *mm: float) -> str:
         return "×".join(self.num(v) for v in mm) + (f" {self.t('unit_mm')}" if self.units == "mm" else "″")
 
+    def screw(self, d: float, length: float) -> str:
+        """3.5×50 мм  или  #6 × 2″ — в дюймах как продаются в США."""
+        if self.units == "mm":
+            return f"{d:g}×{length:g}" + (f" {self.t('unit_mm')}" if self.lang == "ru" else " mm")
+        gauge = {3.0: 4, 3.5: 6, 4.0: 8, 4.5: 9, 5.0: 10}.get(round(d * 2) / 2, 8)
+        L = round(length / MM_PER_IN * 4) / 4
+        return f"#{gauge} × {inches_str(L, 4)}″"
+
     def angle(self, deg: float) -> str:
         return f"{deg:g}°"
 
@@ -100,6 +108,25 @@ MESSAGES: dict[str, dict[str, str]] = {
         "error": "ОШИБКА", "warning": "Внимание",
         "not_built": "PDF не собран: сначала исправьте ошибки.",
         "pcs": "шт", "screw": "саморез",
+        # PDF
+        "difficulty": "Сложность", "time": "Время", "n_parts": "Деталей", "n_screws": "Саморезов",
+        "buy": "Что купить", "tools": "Инструменты",
+        "screws_line": "Саморезы по дереву {spec} — {n} шт (+ пару про запас)",
+        "stock_line": "{name} — {n} шт",
+        "parts_title": "Детали",
+        "parts_sub": "Все размеры в {units}. Буква на детали совпадает с буквой в шагах сборки.",
+        "thickness": "толщина {t}",
+        "bevel_note": "скос {angles} — пунктир: обратная сторона",
+        "cut_title": "Раскрой",
+        "cut_sub": "Учтён пропил {kerf}. Сначала отпилите детали поперёк, потом распустите по ширине.",
+        "stock_no": "№{n}",
+        "screw_spec": "саморез {spec}",
+        "glue": "клей ПВА", "glue_sub": "на все стыки",
+        "screw_marks": "● — места саморезов",
+        "screw_marks_hidden": "; ещё {n} с невидимой стороны",
+        "screws_hidden_all": "Саморезы — с невидимой на рисунке стороны",
+        "tips_title": "Важно",
+        "continued": "(продолжение)",
     },
     "en": {
         "unit_mm": "mm", "unit_mm_long": "millimetres", "unit_in_long": "inches",
@@ -138,6 +165,24 @@ MESSAGES: dict[str, dict[str, str]] = {
         "error": "ERROR", "warning": "Warning",
         "not_built": "PDF not built: fix the errors first.",
         "pcs": "pcs", "screw": "screw",
+        "difficulty": "Difficulty", "time": "Time", "n_parts": "Parts", "n_screws": "Screws",
+        "buy": "Shopping list", "tools": "Tools",
+        "screws_line": "Wood screws {spec} — {n} pcs (+ a couple spare)",
+        "stock_line": "{name} — {n} pcs",
+        "parts_title": "Parts",
+        "parts_sub": "All dimensions in {units}. Part letters match the letters in the assembly steps.",
+        "thickness": "thickness {t}",
+        "bevel_note": "bevel {angles} — dashed: the other face",
+        "cut_title": "Cutting plan",
+        "cut_sub": "Kerf of {kerf} included. Crosscut the parts first, then rip to width.",
+        "stock_no": "#{n}",
+        "screw_spec": "screw {spec}",
+        "glue": "wood glue", "glue_sub": "on every joint",
+        "screw_marks": "● — screw positions",
+        "screw_marks_hidden": "; {n} more on the hidden side",
+        "screws_hidden_all": "Screws go in from the side hidden in the picture",
+        "tips_title": "Important",
+        "continued": "(continued)",
     },
 }
 

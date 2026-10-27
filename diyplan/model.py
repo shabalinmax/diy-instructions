@@ -173,6 +173,10 @@ class Screw:
     def spec(self):
         return f"{self.d:g}×{self.length}"
 
+    @property
+    def key(self):
+        return (self.d, self.length)
+
 
 @dataclass
 class Contact:

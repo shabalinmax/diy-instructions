@@ -73,3 +73,18 @@ def test_cli_refuses_to_build_broken(tmp_path, capsys):
     p.write_text(json.dumps(model([box("a", (0, 0, 0), (100, 20, 300)), box("b", (50, 0, 0), (100, 20, 300))])))
     rc = main(["build", str(p), "-o", str(tmp_path / "o.pdf")])
     assert rc == 1 and not (tmp_path / "o.pdf").exists()
+
+
+def test_pdf_paginates_large_model(tmp_path):
+    parts = [box("base", (0, 0, 0), (2000, 200, 20))]
+    for i in range(30):
+        parts.append(box(f"p{i}", (i * 60, 0, 20), (20, 150 + i, 300), name=f"Стойка {i}"))
+    steps = [{"title": "base", "add": ["base"]}]
+    steps += [{"title": f"Стойка {i}", "add": [f"p{i}"], "text": "Длинный текст. " * (80 if i % 5 == 0 else 3)}
+              for i in range(30)]
+    m = model(parts, steps=steps, tips=["Совет. " * 60] * 12, tools=[f"Инструмент {i}" for i in range(40)])
+    m["stock"][0]["length"] = 2500
+    prj = load_dict(m)
+    out = tmp_path / "big.pdf"
+    build(prj, str(out))
+    assert _pages(out) >= 18   # всё разошлось по страницам, а не наехало
