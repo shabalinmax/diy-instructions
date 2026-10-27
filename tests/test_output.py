@@ -100,3 +100,40 @@ def test_eval_fixtures_still_valid_and_render(path, tmp_path):
     prj = load(str(path))
     assert errors_of(validate(prj)) == []
     build(prj, str(tmp_path / "x.pdf"))
+
+
+def test_board_options_pick_cheapest_mix():
+    # 3 детали по 900: на 2 м влезает две; дешевле взять 2 м + 1 м, чем две по 2 м
+    parts = [box(f"p{i}", (i * 1000, 0, 0), (20, 100, 900)) for i in range(3)]
+    m = model(parts)
+    m["stock"][0].update(length=2000, price=400, options=[{"length": 1000, "price": 220}, {"length": 3000, "price": 700}])
+    uses = cutlist.plan(load_dict(m))
+    assert sorted(u.length for u in uses) == [1000, 2000]
+    assert cutlist.cost(uses) == 620
+
+
+def test_tight_cut_hint():
+    parts = [box(f"p{i}", (i * 1300, 0, 0), (20, 100, 1000)) for i in range(2)]
+    m = model(parts)
+    m["stock"][0]["length"] = 2000          # 1000 + 3 + 1000 > 2000 — не хватает пропила
+    uses, hints = cutlist.plan_with_hints(load_dict(m))
+    assert len(uses) == 2 and [h.code for h in hints] == ["cut_tight"] and hints[0].params["mm"] == 2
+
+
+def test_maxrects_rotates_and_respects_grain():
+    pieces = [cutlist.Piece("A", "a", 1200, 300) for _ in range(4)] + [cutlist.Piece("B", "b", 900, 400)]
+    sheets = cutlist._maxrects(pieces, 1525, 1525, 3, rotate=True)
+    assert len(sheets) == 1
+    for pl in sheets[0]:
+        assert pl.x + pl.w <= 1525 + 1e-6 and pl.y + pl.h <= 1525 + 1e-6
+    placed = sheets[0]
+    for i, a in enumerate(placed):
+        for b in placed[i + 1:]:
+            assert a.x + a.w <= b.x or b.x + b.w <= a.x or a.y + a.h <= b.y or b.y + b.h <= a.y
+
+
+def test_offcut_hint_for_mostly_empty_sheet():
+    m = model([box("a", (0, 0, 0), (400, 18, 300))])
+    m["stock"] = [{"id": "b20", "kind": "sheet", "name": "Ply", "thickness": 18, "width": 1525, "length": 1525}]
+    uses, hints = cutlist.plan_with_hints(load_dict(m))
+    assert hints and hints[0].code == "cut_offcut"

@@ -212,6 +212,10 @@ class Stock:
     thickness: float
     width: float
     length: float
+    price: float | None = None      # за одну доску/лист
+    options: list = field(default_factory=list)   # другие форматы: [{"length":3000,"price":450}, …]
+    grain: bool = False              # у листа есть направление волокон — детали не поворачивать
+    material: str = ""               # pine, plywood, chipboard… (иначе угадывается по названию)
 
 
 @dataclass
@@ -282,6 +286,7 @@ class Project:
     fastener: str = "auto"                        # auto | screw | confirmat
     gaps_ok: list = field(default_factory=list)   # пары деталей, между которыми зазор задуман
     cover_view: str = "front-right"
+    currency: str = ""
 
     def part(self, pid: str) -> Part:
         for p in self.parts:
@@ -424,6 +429,10 @@ def _to_mm(raw: dict):
         for key in ("thickness", "width", "length"):
             if key in st:
                 st[key] = st[key] * k
+        for o in st.get("options", []):
+            for key in ("width", "length"):
+                if key in o:
+                    o[key] = o[key] * k
     if "kerf" in raw:
         raw["kerf"] = raw["kerf"] * k
     for p in raw.get("parts", []):
@@ -501,6 +510,22 @@ def _check_raw(raw: dict) -> list:
     return out
 
 
+def _stock(s: dict) -> Stock:
+    base = {"width": float(s["width"]), "length": float(s["length"]), "price": s.get("price")}
+    opts = []
+    for o in s.get("options", []):
+        opts.append({"width": float(o.get("width", s["width"])), "length": float(o.get("length", s["length"])),
+                     "price": o.get("price")})
+    if opts and not any(o["width"] == base["width"] and o["length"] == base["length"] for o in opts):
+        opts.insert(0, base)
+    st = Stock(s["id"], s["kind"], s["name"], float(s["thickness"]), base["width"], base["length"],
+               s.get("price"), opts, bool(s.get("grain", False)), s.get("material", ""))
+    if opts:  # для проверки «влезает ли деталь» — самый большой формат
+        st.width = max(o["width"] for o in opts)
+        st.length = max(o["length"] for o in opts)
+    return st
+
+
 def load(path: str) -> Project:
     with open(path, encoding="utf-8") as f:
         text = f.read()
@@ -526,8 +551,7 @@ def load_dict(raw: dict) -> Project:
     if units == "in":
         _to_mm(raw)
     errors: list = []
-    stock = {s["id"]: Stock(s["id"], s["kind"], s["name"], float(s["thickness"]), float(s["width"]),
-                            float(s["length"])) for s in raw["stock"]}
+    stock = {s["id"]: _stock(s) for s in raw["stock"]}
     parts = [_build_part(p, errors) for p in raw["parts"]]
     steps = [Step(s["title"], s.get("add", []), s.get("focus", []), s.get("text", ""), s.get("glue", False),
                   s.get("view", "front-right"), s.get("group"), s.get("attach"), int(s.get("times", 1)),
@@ -541,7 +565,7 @@ def load_dict(raw: dict) -> Project:
         lang=lang, units=units, disclaimer=raw.get("disclaimer", ""),
         safety=list(raw.get("safety", [])),
         fastener=raw.get("fastener", "auto"), gaps_ok=raw.get("gaps_ok", []),
-        cover_view=raw.get("cover_view", "front-right"),
+        cover_view=raw.get("cover_view", "front-right"), currency=raw.get("currency", ""),
     )
     if not errors:
         _apply_snaps(prj)

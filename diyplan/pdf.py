@@ -209,8 +209,11 @@ def cover(d: Doc, total_screws: Counter, uses):
     iso.draw_scene(c, prj, (M, 330, W - 2 * M, H - 150 - 345), {p.id: "old" for p in prj.parts},
                    arrows=False, labels=False, extra=30, view=prj.cover_view)
     cw = (W - 2 * M - 3 * 10) / 4
+    money = cutlist.cost(uses)
     chips = [(f.t("difficulty"), prj.difficulty or "—"), (f.t("time"), prj.time or "—"),
-             (f.t("n_parts"), str(len(prj.parts))), (f.t("n_screws"), str(sum(total_screws.values())))]
+             (f.t("budget"), "≈ " + fmt_money(money, prj.currency)) if money is not None
+             else (f.t("n_parts"), str(len(prj.parts))),
+             (f.t("n_screws"), str(sum(total_screws.values())))]
     for i, (lab, val) in enumerate(chips):
         chip(c, M + i * (cw + 10), 270, cw, lab, val)
 
@@ -408,44 +411,49 @@ def parts_section(d: Doc):
         d.y -= cell_h
 
 
-def cut_section(d: Doc, uses):
+def cut_section(d: Doc, uses, hints=()):
     c, f, prj = d.c, d.fmt, d.prj
     bar_w = W - 2 * M
+    longest = {}
+    for u in uses:
+        longest[u.stock_id] = max(longest.get(u.stock_id, 0), u.length)
 
-    def bar_h(u):
+    def scale(u):
         st = prj.stock[u.stock_id]
-        sc = bar_w / st.length
+        sc = bar_w / longest[u.stock_id]   # доски одной партии — в одном масштабе
         if st.kind == "sheet":
-            sc = min(sc, 260 / st.width)
-        return st.width * sc
+            sc = min(bar_w / u.length, 260 / u.width)
+        return sc
 
     kinds = {prj.stock[u.stock_id].kind for u in uses}
-    rip = any(prj.stock[u.stock_id].kind == "board" and pl.h < prj.stock[u.stock_id].width - 1
-              for u in uses for pl in u.placed)
+    rip = any(prj.stock[u.stock_id].kind == "board" and pl.h < u.width - 1 for u in uses for pl in u.placed)
     parts_ = [f.t("cut_sub_kerf", kerf=f.len(prj.kerf))]
     if "board" in kinds:
         parts_.append(f.t("cut_sub_rip" if rip else "cut_sub_board"))
     if "sheet" in kinds:
         parts_.append(f.t("cut_sub_sheet"))
     d.y -= 14
-    d.need(70 + (bar_h(uses[0]) + 30 if uses else 0))   # заголовок не остаётся один внизу страницы
+    d.need(70 + (uses[0].width * scale(uses[0]) + 30 if uses else 0))   # заголовок не остаётся один
     d.heading(f.t("cut_title"), sub=" ".join(parts_))
+    for h in hints:
+        line = "→ " + hint_text(f, h)
+        d.need(14, f.t("cut_title"))
+        d.y = para(c, M, d.y, line, bar_w, 8.5, color=iso.DIM, bold=True) - 2
     for u in uses:
         st = prj.stock[u.stock_id]
-        sc = bar_w / st.length
-        if st.kind == "sheet":
-            sc = min(sc, 260 / st.width)
-        bh = st.width * sc
+        sc = scale(u)
+        bh = u.width * sc
         d.need(bh + 30, f.t("cut_title"))
         d.y -= 14
-        text(c, M, d.y, fit_text(c, f"{st.name} {f.dims(st.thickness, st.width, st.length)}  —  "
-                                    f"{f.t('stock_no', n=u.index)}", bar_w, 8.5, True), 8.5, bold=True)
+        price = f"  ·  {fmt_money(u.price, prj.currency)}" if u.price is not None else ""
+        text(c, M, d.y, fit_text(c, f"{st.name} {f.dims(st.thickness, u.width, u.length)}  —  "
+                                    f"{f.t('stock_no', n=u.index)}{price}", bar_w, 8.5, True), 8.5, bold=True)
         y = d.y - 6 - bh
         c.setFillColor(HexColor("#EDEDED")); c.setStrokeColor(MUTED); c.setLineWidth(0.6)
-        c.rect(M, y, st.length * sc, st.width * sc, fill=1, stroke=1)
+        c.rect(M, y, u.length * sc, u.width * sc, fill=1, stroke=1)
         for pl in u.placed:
             x0 = M + pl.x * sc
-            y0 = y + (st.width - pl.y - pl.h) * sc
+            y0 = y + (u.width - pl.y - pl.h) * sc
             pw, ph = pl.w * sc, pl.h * sc
             c.setFillColor(WOOD); c.setStrokeColor(INK); c.setLineWidth(0.7)
             c.rect(x0, y0, pw, ph, fill=1, stroke=1)
@@ -463,7 +471,19 @@ def cut_section(d: Doc, uses):
         d.y = y - 8
 
 
-# ---------- шаги ----------
+def fmt_money(x, currency):
+    s = f"{x:,.0f}".replace(",", " ")
+    return f"{s} {currency}".strip() if currency else s
+
+
+def hint_text(f: Fmt, h) -> str:
+    p = dict(h.params)
+    if h.code == "cut_offcut":
+        return f.t("cut_offcut", stock=p["stock"], n=p["n"], pct=p["pct"], size=f.dims(p["w"], p["h"]))
+    if h.code == "cut_tight":
+        return f.t("cut_tight", stock=p["stock"], mm=f.len(p["mm"]), n=p["n"])
+    return h.code
+
 
 def position_dims(prj: Project, new_ids, placed_ids, view: str, fmt: Fmt, limit=3):
     """Размеры положения: где на соседней детали стоит новая, если её можно сдвинуть
@@ -741,12 +761,12 @@ def build(prj: Project, out: str):
     d = Doc(prj, out, fmt)
     screws_by_step = plan_screws(prj)
     total = Counter(s.key for v in screws_by_step.values() for s in v)
-    uses = cutlist.plan(prj)
+    uses, hints = cutlist.plan_with_hints(prj)
 
     cover(d, total, uses)
     d.new_page()
     parts_section(d)
-    cut_section(d, uses)
+    cut_section(d, uses, hints)
     steps_section(d, screws_by_step)
     tips_section(d)
     d.save()

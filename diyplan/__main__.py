@@ -21,9 +21,12 @@ from .model import errors_of, load, plan_screws, structure_report, validate
 
 def _summary(prj, fmt: Fmt) -> dict:
     screws = Counter(s.key for v in plan_screws(prj).values() for s in v)
-    uses = cutlist.plan(prj)
+    uses, hints = cutlist.plan_with_hints(prj)
     sags, stab = structure_report(prj)
+    from .pdf import hint_text
     return {
+        "cut_hints": [hint_text(fmt, h) for h in hints],
+        "materials_cost": cutlist.cost(uses),
         "loads": [{"part": x.part, "load_kg": round(x.load_kg, 1), "type": "point" if x.point else "uniform",
                    "span_mm": round(x.span), "sag_mm": round(x.sag, 1), "sag_limit_mm": round(x.limit_warn, 1),
                    "level": x.level} for x in sags],
@@ -32,6 +35,8 @@ def _summary(prj, fmt: Fmt) -> dict:
         "parts": len(prj.parts),
         "steps": len(prj.steps),
         "stock": [{"name": name, "count": n} for name, n in cutlist.shopping(prj, uses, fmt)],
+        "sheets_used_pct": [round(100 * u.used_area / (u.width * u.length)) for u in uses
+                            if prj.stock[u.stock_id].kind == "sheet"],
         "screws": [{"kind": k[0], "spec": fmt.screw(*k), "diameter_mm": k[1], "length_mm": k[2], "count": n}
                    for k, n in sorted(screws.items())],
     }
