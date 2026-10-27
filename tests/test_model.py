@@ -9,6 +9,8 @@ from diyplan.model import errors_of, load, load_dict, plan_screws, validate
 # ---------- примеры из репозитория — «золотые» ----------
 
 @pytest.mark.parametrize("name, screws, parts", [
+    ("wall-shelf.json", 15, 4),
+    ("stool.json", 24, 6),
     ("birdhouse.json", 24, 6),
     ("titmouse-house.json", 30, 7),
 ])

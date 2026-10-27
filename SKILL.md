@@ -1,124 +1,95 @@
 ---
 name: diy-instructions
-description: Turns a DIY woodworking idea (birdhouse, feeder, shelf, box, stool, planter, doghouse) into a printable step-by-step assembly PDF in the style of flat-pack furniture manuals — parts drawings with dimensions and angled cuts, cut list for boards/sheets, screw counts, isometric pictures for every step; supports sloped and gable roofs. Use when the user wants to build something from boards, plywood or OSB and asks for an instruction, plan, drawing or cut list.
+description: Turns a DIY woodworking idea (birdhouse, shelf, box, bench, stool, planter, shoe rack, doghouse, feeder, nightstand) into a printable step-by-step assembly PDF in the style of flat-pack furniture manuals — dimensioned part drawings, cut plan for boards/sheets, shopping list with screws, isometric pictures for every step, 1:1 print templates and a rough strength check. Supports sloped/gable roofs, sub-assemblies, metric and inches, Russian and English. Use when the user wants to build something from boards, plywood, OSB or chipboard and asks for an instruction, plan, drawing or cut list.
 ---
 
-# DIY-инструкция: идея → модель → PDF
+# DIY instructions: idea → model → PDF
 
-Ты не рисуешь картинки и не считаешь раскрой в голове. Ты собираешь **JSON-модель** изделия,
-а движок `diyplan` строит детали, проверяет геометрию, расставляет саморезы, считает раскрой
-и рендерит PDF. Размеры в PDF сходятся, если модель прошла `check` без ошибок.
+You do not draw pictures or compute cut lists in your head. You write a **JSON model** of the
+build; the `diyplan` engine builds the parts, validates the geometry, places screws, checks sag
+and stability, plans the cutting and renders the PDF. Dimensions in the PDF are consistent as long
+as the model passes `check`.
 
-## Порядок работы
+Reference: `references/model-format.md` (every field), `references/recipes.md` (how typical builds
+are put together). Working examples: `examples/*.json`.
 
-1. **Уточни у пользователя** (одним сообщением, не допросом):
-   - что строим и для чего (габариты, где будет стоять/висеть, нагрузка, какая крыша);
-   - из чего: доска (толщина×ширина×длина, которую реально купить) или лист (фанера, ОСП);
-   - инструменты: есть ли лобзик/циркулярка (можно ли распускать доску и пилить под углом).
-   Если человек не знает — предложи разумный вариант по умолчанию и иди дальше.
-2. **Проверь, можно ли это делать** (раздел «Безопасность» ниже).
-3. **Спроектируй** изделие и запиши `model.json` (формат ниже).
-   Сначала продумай, какая деталь что перекрывает (кто стоит на торце, кто накрывает).
-4. **Проверь**: `diyplan check model.json --json`. Исправляй, пока `ok` не станет `true`.
-   Предупреждения про зазоры, «касание только по ребру» и пропущенные саморезы почти всегда
-   означают ошибку в модели — разбирайся, а не игнорируй.
-5. **Собери и посмотри глазами**: `diyplan preview model.json -o preview/` — PDF и PNG всех страниц.
-   Открой картинки. Если новая деталь на шаге спрятана за другими — поменяй `view` у шага.
-6. Отдай PDF и коротко скажи, что купить.
+## Workflow
 
-Установка: `pip install -e <путь к скиллу>` (зависимость одна — reportlab; для PNG нужен `pdftoppm`).
-Без установки: `python -m diyplan ...` из каталога скилла.
+1. **Safety gate first** — before asking anything, check the request against "Do not build" below.
+2. **Clarify in one message** (not an interrogation): what it is for and rough size; material the
+   user can actually buy (board thickness×width×length, or sheet); tools (can they rip boards / cut
+   angles?); for anything people sit on, stand on or load — the expected load. If the user is not
+   available, pick sensible defaults and say which ones you picked.
+3. **Design**: decide who covers whom at every joint (which part sits on the end of which), then
+   write `model.json`. Prefer an order of steps where every new part attaches to what is already built.
+4. **Check**: `diyplan check model.json --json` until `ok` is `true`. Treat warnings as real until
+   you understand them — see "Reading warnings".
+5. **Look at it**: `diyplan preview model.json -o preview/` writes the PDF and a PNG per page. Open the
+   PNGs. If a new part is hidden, change the step's `view`; if a step is crowded, split it.
+6. Hand over the PDF and say in two lines what to buy and anything you assumed.
 
-## Язык и единицы
+Install once: `pip install -e <skill dir>` (needs only reportlab; PNG preview needs `pdftoppm`).
+Without installing: `python -m diyplan ...` from the skill directory.
 
-- `"lang": "ru" | "en"` — язык подписей в PDF. Все тексты модели (названия, шаги, советы) пиши
-  на языке пользователя и ставь тот же `lang`.
-- `"units": "mm" | "in"` — в чём записана модель и в чём печатать размеры. Пользователю из США
-  (или если он говорит в дюймах) — `"in"`: все длины в модели тогда в дюймах, в PDF — дроби до 1/16″
-  и саморезы вида `#6 × 2″`. Названия материала тоже местные (2×4, 3/4″ plywood).
+## Do not build
 
-## Система координат
+The engine checks geometry and gives only a rough sag estimate — it does not do structural design.
+Do not produce instructions for things whose failure can seriously injure someone: ladders and step
+stools taller than one step, swings, pull-up bars, climbing frames and slides, bunk beds and loft
+beds, cribs and baby furniture, railings and guards, anything structural in a house (joists,
+rafters, decks above ground, stairs). Say so in one or two sentences, suggest a proven plan or a
+professional, and offer something adjacent you can do (a toy box, an under-bed drawer, a low bench).
+A regular low bed, a bench, a stool and shelves are fine — with `load_bearing` and stated loads.
 
-Мм. **x** — слева направо, **y** — от фасада вглубь (фасад при y=0), **z** — вверх.
+## Rules that keep the model honest
 
-## Деталь
+- Units: everything in the model (sizes, coordinates, kerf, holes) is in `units` — `mm` by default,
+  `in` for US users (then use local names: 2×4, 3/4″ plywood). `lang` is `ru` or `en` and should match
+  the language of all texts you write in the model.
+- Each part starts as a blank `size: [dx, dy, dz]`; the **smallest** dimension is the thickness and
+  must equal the stock thickness; for a board the middle one must fit the board width.
+- Parts never overlap; a joint is two faces touching. If two parts "go into" each other, shorten one.
+- Every structural joint needs one part touching the other with its **face** (that part gets the
+  screws). Two parts meeting edge-to-edge or end-to-end cannot be screwed — redesign or accept glue.
+- Boards laid side by side in one plane (a panel, a slatted seat, a wall of boards) are a *seam*,
+  not a joint; that is fine as long as something across them holds them.
+- Never compute rotated coordinates by hand: give a rough position, the tilt (`rotate`) and let
+  `snap` drop the part into contact. Cut sloped tops with `trim` using the same plane points.
+- State loads: `load_kg` on shelves/tops (`load_type: "point"` for seats and steps). Add the
+  `safety` flags that apply: `load_bearing`, `children`, `outdoor`, `wall_mount`.
+- Step text is short and practical, like a furniture manual. Do not repeat dimensions that the PDF
+  already shows (parts page, position dimensions on steps).
 
-Каждая деталь начинается с **заготовки** — бруска `size: [dx, dy, dz]` (в координатах самой
-детали). Самый маленький размер — толщина, он обязан совпадать с толщиной материала.
-Две оставшиеся оси — **оси пласти** (в порядке x→y→z): в них задаются отверстия и резы.
+## What the engine does for you
 
-Дальше к заготовке по порядку применяется:
+Screws (type, length ≈ 2.5× the thickness of the part they pass through, spacing, edge distance,
+no collisions, no poke-through; confirmat screws into chipboard/MDF edges), shopping list including
+screws and hardware, position dimensions on steps ("shelf: 262 mm up from the bottom of A"), zoom
+callouts for joints, ghosting of parts that hide the new one, cut plan with board-length/sheet-size
+choice and hints, material cost if prices are given, sag/stability report, 1:1 templates for shaped
+cuts and large openings, safety page and disclaimer.
 
-| Поле | Что делает | Когда нужно |
-|---|---|---|
-| `cuts` | Прямой рез поперёк пласти: `{"from": [u, v], "to": [u, v]}` в осях пласти от угла заготовки. Остаётся сторона с центром заготовки (или задай `"keep": [u, v]`). | Фронтон-пятиугольник, трапеция, срезанный угол |
-| `rotate` | Наклон: `{"axis": "x", "deg": 30}` или `{"axis": "x", "rise": -40, "run": 180}`. При положительном угле поднимается конец со стороны +оси: `x` — дальний (+y) конец, `y` — правый (+x) конец, `z` — поворот в плане. Можно списком. | Скаты крыши, наклонная полка |
-| `origin` | Куда ставится угол заготовки `[0,0,0]` после поворота. | Всегда |
-| `trim` | Рез плоскостью в мировых координатах: `{"through": [[x,y,z], [x,y,z], [x,y,z]]}` — три точки плоскости. Остаётся сторона с центром детали (или `"keep": [x,y,z]`). | Верх стенок под уклон крыши, скос торца |
-| `snap` | Сдвинуть деталь вдоль `dir` до касания с деталями `to`: `{"to": ["front", "back"], "dir": [0, 0, -1]}`. Можно списком — выполняются по очереди. | Положить наклонную крышу на стенки, дотолкнуть скат до конька |
+## Reading warnings
 
-Ещё поля: `holes: [{"d": 50, "at": [u, v], "name": "Леток"}]` (сквозные, в осях пласти),
-`removable` (без клея, 2 самореза на стык), `fasten_to` (крепить только к этим деталям).
+| code | meaning → what to do |
+|---|---|
+| `gap` | parts almost touch. Should touch → fix a size/origin. Gap intended → add the pair to `gaps_ok`. |
+| `snap_edge_only` | tilt of the part ≠ tilt of the cut it rests on. Use identical rise/run or trim points. |
+| `joint_glue_only` | end meets end; no screw possible. Make one part overlap the other, or `fasten_to` if intended. |
+| `screw_clash` | two screws would meet inside a part. Shift one part 10–20 mm, or restrict with `fasten_to`. |
+| `screw_too_long` | the receiving part is too thin there; screw from the other side or redesign. |
+| `screw_short_joint` / `screw_near_edge` | edge too narrow for a screw (thin sheet edge) — redesign or glue. |
+| `hole_blocked` | an opening is covered by a neighbouring part (drain hole over a foot). Move one. |
+| `hole_near_edge`, `hole_overlap` | move openings apart / away from edges. |
+| `sag_warn`, `sag_bad` | shelf will bow. Thicker stock, shorter span, or a support rail along the back. |
+| `tip_over`, `anchor_children` | widen the base or anchor to the wall (`wall_mount` + hardware + a step). |
+| `load_unspecified` | set `load_kg` on the loaded parts. |
+| `text_too_long` | shorten the title/subtitle/step title. |
+| `step_no_fastener` | the new part is not fastened to anything already built — check the step order. |
 
-**Snap снимает с тебя тригонометрию.** Задай наклон и примерное место (с запасом над стенками),
-а `snap` опустит деталь точно на них. Детали-цели для `snap` должны стоять в списке `parts` раньше.
+## Limits (tell the user when you hit them)
 
-## Наклонная крыша: рецепты
-
-**Односкатная** (`examples/birdhouse.json`): у всех стенок одинаковый `trim` по плоскости ската,
-крыша — заготовка с `rotate` того же уклона (`rise`/`run` те же числа, что в плоскости) и `snap` вниз.
-
-**Двускатная 45°** (`examples/titmouse-house.json`):
-- фронтоны — `cuts` двух верхних углов;
-- боковины — `trim` верха той же плоскостью, что скат фронтона (иначе крыша ляжет только на фронтоны);
-- длинный скат: `rotate` −45°, `snap` вниз на фронтоны и правую боковину; он длиннее на толщину
-  доски и выходит за конёк;
-- короткий скат: `rotate` +45°, `snap` вниз, затем `snap` вдоль ската `"dir": [1, 0, 1]` до длинного —
-  его торец упирается в выступ. При 45° оба торца прямые, без скосов.
-
-При другом уклоне торцы на коньке сходятся под углом: срежь оба ската вертикальной плоскостью
-по коньку через `trim` — получится стык торец в торец (только клей; движок предупредит, что саморез некуда вкрутить).
-
-## Шаги
-
-```json
-{"title": "Леток", "focus": ["front"], "text": "..."}
-{"title": "Дно и боковина", "add": ["floor", "side_l"], "glue": true, "view": "front-left", "text": "..."}
-```
-- `add` — какие детали ставим (каждая деталь ровно один раз за всю сборку);
-- `focus` — подготовительный шаг без сборки: рисуется только эта деталь;
-- `view` — ракурс: `front-right` (по умолчанию), `front-left`, `back-right`, `back-left`;
-- `glue` — иконка клея.
-
-Саморезы движок ставит сам: через деталь, которая касается соседа своей пластью, в торец
-или пласть соседа; длина ≈ толщина + 30 мм, шаг ~120 мм, отступ 25 мм от краёв.
-
-## Правила проектирования
-
-- Детали не пересекаются: стык — касание граней. Две детали «заходят» друг в друга — укороти одну.
-- У стыка должна быть деталь, касающаяся пластью, — иначе саморез некуда вкрутить.
-- Материал, который можно купить: доска 20–25 мм шириной 100/150/200 и длиной 2–3 или 6 м;
-  фанера 1525×1525, 1220×2440; ОСП 1250×2500. Названный пользователем размер — в приоритете.
-- Для улицы и для животных не предлагай ОСП/ДСП и пропитку изнутри — вынеси это в `tips`.
-- Тексты шагов — коротко, как в инструкции к мебели. Размеры не повторяй, они есть на чертеже деталей.
-
-## Безопасность
-
-Флаги `"safety": [...]` добавляют в PDF нужные предупреждения — ставь все подходящие:
-- `"load_bearing"` — на изделие ставят тяжёлое или садятся (полки, стеллажи, лавки, табуреты, верстак);
-- `"children"` — детская мебель и игрушки;
-- `"outdoor"` — улица (скворечники, грядки, садовая мебель);
-- `"wall_mount"` — вешается на стену.
-
-**Не делай инструкций** для конструкций, от прочности которых зависит жизнь или здоровье: лестницы
-и стремянки, качели и турники, двухъярусные кровати и кровати-чердаки, детские горки и игровые
-комплексы для лазания, перила и ограждения, всё несущее в доме (перекрытия, стропила, террасы над землёй).
-Движок не считает прочность. Объясни это одной-двумя фразами и предложи взять проверенные чертежи
-или проект от специалиста; можешь помочь с чем-то соседним (например, ящиком для игрушек вместо горки).
-
-## Ограничения
-
-- Только выпуклые детали из одной заготовки: пазы, шипы, вырезы «буквой Г» не моделируются
-  (Г-образную деталь сделай из двух).
-- Крепёж — только саморезы; петли, уголки, фурнитура — через `extra_materials` и текст.
-- Отверстия — только сквозные круглые, перпендикулярно пласти.
+Parts are convex: no grooves, tenons, L-shaped cut-outs or notches at an edge (build L-shapes from
+two parts). Openings are through-holes inside a face (circle, rectangle, slot, arch). Fasteners are
+screws and confirmat screws; hinges, drawer slides, brackets go to `extra_materials` / `hardware`
+markers and the step text. No doors or drawers that move.

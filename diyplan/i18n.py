@@ -29,7 +29,7 @@ class Fmt:
     def len(self, mm: float) -> str:
         """С единицами: 326 мм / 12 7/8″."""
         if self.units == "mm":
-            return f"{mm:.0f} {self.t('unit_mm')}"
+            return f"{self.num(mm)} {self.t('unit_mm')}"
         return self.num(mm) + "″"
 
     def dims(self, *mm: float) -> str:

@@ -97,6 +97,9 @@ def shelf_sag(prj, part, contacts) -> Sag | None:
         side = abs(n[2]) < 0.05
         if not (below or side):
             continue
+        along = [G.dot(q, e) for q in c.pts]
+        if below and max(along) - min(along) >= 0.5 * dims[long_ax]:
+            return None   # лежит на бруске/царге по всей длине — пролёта поперёк почти нет
         cen = tuple(sum(p[i] for p in c.pts) / len(c.pts) for i in range(3))
         proj.append(G.dot(cen, e))
     if len(proj) < 2:
