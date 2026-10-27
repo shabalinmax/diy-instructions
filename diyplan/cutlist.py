@@ -185,8 +185,8 @@ def _plan_sheets(sid, st, pieces, kerf):
                 if again is not None and len(again) == 1:
                     alt.append((x, again[0]))
             chosen.append(min(alt, key=lambda a: _cost(a[0])) if alt else (o, content))
-        total = sum(_cost(x) for x, _ in chosen)
-        if best is None or total < best[0] - 1e-9:
+        total = (sum(_cost(x) for x, _ in chosen), len(chosen))   # при равной цене — меньше листов
+        if best is None or total < best[0]:
             best = (total, chosen)
     if best is None:
         return []

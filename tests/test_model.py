@@ -10,6 +10,8 @@ from diyplan.model import errors_of, load, load_dict, plan_screws, validate
 
 @pytest.mark.parametrize("name, screws, parts", [
     ("wall-shelf.json", 15, 4),
+    ("workbench-in.json", None, 15),
+    ("shoe-rack.json", None, 8),
     ("stool.json", 24, 6),
     ("birdhouse.json", 24, 6),
     ("titmouse-house.json", 30, 7),
@@ -20,7 +22,7 @@ def test_examples_are_clean(example_path, name, screws, parts):
     assert issues == [], [i.code for i in issues]
     assert len(prj.parts) == parts
     total = sum(len(v) for v in plan_screws(prj).values())
-    assert total == screws
+    assert screws is None or total == screws
 
 
 def test_mirrored_parts_share_letter(example_path):
@@ -354,3 +356,51 @@ def test_group_not_attached_warns():
     steps = [{"title": "box", "add": ["floor", "side_l", "side_r", "front", "back"]},
              {"title": "bed", "group": "bed", "add": ["lid", "rim_l", "rim_r"]}]
     assert "group_not_attached" in codes(validate(_cat_like(steps)))
+
+
+# ---------- прогон 2 ----------
+
+def test_seat_on_two_aprons_spans_across():
+    from diyplan.structure import shelf_sag
+    from diyplan.model import all_contacts
+    parts = [box("leg_l", (0, 0, 0), (20, 300, 400)), box("leg_r", (580, 0, 0), (20, 300, 400)),
+             box("apron_f", (20, 0, 300), (560, 20, 100)), box("apron_b", (20, 280, 300), (560, 20, 100)),
+             box("seat", (0, 0, 400), (600, 300, 20), load_kg=120, load_type="point")]
+    prj = load_dict(model(parts, safety=["load_bearing"]))
+    x = shelf_sag(prj, prj.part("seat"), all_contacts(prj))
+    assert x is not None and x.span == pytest.approx(280, abs=1)   # между царгами, поперёк
+
+
+def test_middle_support_splits_span():
+    from diyplan.structure import shelf_sag
+    from diyplan.model import all_contacts
+    parts = [box("l", (0, 0, 0), (20, 300, 400)), box("r", (1180, 0, 0), (20, 300, 400)),
+             box("mid", (590, 0, 0), (20, 300, 400)),
+             box("top", (0, 0, 400), (1200, 300, 20), load_kg=30)]
+    prj = load_dict(model(parts, safety=["load_bearing"]))
+    x = shelf_sag(prj, prj.part("top"), all_contacts(prj))
+    assert x is not None and x.span == pytest.approx(590, abs=2)
+
+
+def test_floating_part_is_reported_with_gap():
+    parts = [box("a", (20, 0, 0), (300, 200, 20)), box("b", (0, 0, 0), (20, 200, 300)),
+             box("c", (325, 0, 0), (20, 200, 300)), box("d", (0, 0, 300), (345, 200, 20))]
+    issues = validate(load_dict(model(parts)))
+    assert "step_not_touching" in codes(issues)
+
+
+def test_attach_several_groups_with_loose_parts():
+    parts = [box("leg_a", (0, 0, 0), (20, 100, 400)), box("rail_a", (0, 100, 380), (20, 400, 20)),
+             box("leg_b", (0, 500, 0), (20, 100, 400)),
+             box("leg_c", (580, 0, 0), (20, 100, 400)), box("rail_c", (580, 100, 380), (20, 400, 20)),
+             box("leg_d", (580, 500, 0), (20, 100, 400)),
+             box("apron", (20, 0, 300), (560, 20, 100))]
+    steps = [{"title": "l", "group": "L", "add": ["leg_a", "rail_a", "leg_b"]},
+             {"title": "r", "group": "R", "add": ["leg_c", "rail_c", "leg_d"], "same_as": 1, "mirror": True},
+             {"title": "join", "attach": ["L", "R"], "add": ["apron"]}]
+    m = model(parts, steps=steps)
+    m["stock"][0]["width"] = 400
+    prj = load_dict(m)
+    assert errors_of(validate(prj)) == []
+    per = plan_screws(prj)
+    assert per[2] and all("apron" in (s.through, s.into) for s in per[2])

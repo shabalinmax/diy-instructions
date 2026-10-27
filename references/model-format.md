@@ -97,7 +97,8 @@ All lengths are in the model's `units` (`mm` default, or `in`). Axes: **x** left
 {"title": "Леток", "focus": ["front"], "text": "…"}
 {"title": "Лежанка", "group": "bed", "add": ["lid", "rim_l", "rim_r"], "text": "…"}
 {"title": "Лежанку на домик", "attach": "bed", "text": "…"}
-{"title": "Вторая рама", "group": "frame_r", "add": ["leg_c", "leg_d", "rail_b"], "times": 1, "same_as": 2}
+{"title": "Вторая рама", "group": "frame_r", "add": ["leg_c", "leg_d", "rail_b"], "same_as": 2, "mirror": true}
+{"title": "Царги", "attach": ["frame_l", "frame_r"], "add": ["apron_f", "apron_b"]}
 ```
 
 - `add` — parts installed in this step. Every part is installed exactly once over all steps.
@@ -106,9 +107,13 @@ All lengths are in the model's `units` (`mm` default, or `in`). Axes: **x** left
 - `view` — camera: `front-right` (default), `front-left`, `back-right`, `back-left`.
 - `glue` — glue icon.
 - `group` — the step builds a separate sub-assembly on the bench (only its parts are drawn).
-  `attach: "<group>"` puts the finished sub-assembly onto the main build; screws between the group
-  and the main build are placed there.
-- `times` — shows a ×N badge ("make N of these"). `same_as` — "same as in step N" (1-based).
+  `attach: "<group>"` or a list of groups puts finished sub-assemblies onto the main build; the
+  same step may also `add` loose parts that join them (aprons between two end frames). Screws
+  between groups, loose parts and the main build are placed there; screws inside a group were
+  placed on its own steps.
+- `times` — shows a ×N badge ("make N of these"); use it only when ONE step builds several
+  identical units that are modelled once. When both units are modelled (left and right), give the
+  second its own step with `same_as` (1-based step number) and `mirror: true` if it is a mirror image.
 
 ## CLI
 

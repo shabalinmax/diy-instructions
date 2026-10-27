@@ -1,0 +1,366 @@
+{
+ "title": "Garage Workbench",
+ "subtitle": "A sturdy 5 ft workbench from 2x4s with a 3/4 in plywood top and a lower shelf.",
+ "lang": "en",
+ "units": "in",
+ "difficulty": "Easy",
+ "time": "Half a day",
+ "kerf": 0.125,
+ "currency": "$",
+ "safety": [
+  "load_bearing"
+ ],
+ "stock": [
+  {
+   "id": "s2x4",
+   "kind": "board",
+   "name": "2x4 stud, pine/SPF",
+   "thickness": 1.5,
+   "width": 3.5,
+   "length": 96,
+   "material": "spruce",
+   "options": [
+    {
+     "length": 120
+    },
+    {
+     "length": 144
+    }
+   ]
+  },
+  {
+   "id": "ply34",
+   "kind": "sheet",
+   "name": "3/4 in plywood",
+   "thickness": 0.75,
+   "width": 48,
+   "length": 96,
+   "material": "plywood"
+  }
+ ],
+ "parts": [
+  {
+   "id": "leg_lf",
+   "name": "Leg",
+   "stock": "s2x4",
+   "size": [
+    1.5,
+    3.5,
+    35.25
+   ],
+   "origin": [
+    1.5,
+    1.5,
+    0
+   ]
+  },
+  {
+   "id": "leg_lb",
+   "name": "Leg",
+   "stock": "s2x4",
+   "size": [
+    1.5,
+    3.5,
+    35.25
+   ],
+   "origin": [
+    1.5,
+    19,
+    0
+   ]
+  },
+  {
+   "id": "end_top_l",
+   "name": "Top end rail",
+   "stock": "s2x4",
+   "size": [
+    1.5,
+    21,
+    3.5
+   ],
+   "origin": [
+    0,
+    1.5,
+    31.75
+   ]
+  },
+  {
+   "id": "end_bot_l",
+   "name": "Bottom end rail",
+   "stock": "s2x4",
+   "size": [
+    1.5,
+    21,
+    3.5
+   ],
+   "origin": [
+    0,
+    1.5,
+    4
+   ]
+  },
+  {
+   "id": "leg_rf",
+   "name": "Leg",
+   "stock": "s2x4",
+   "size": [
+    1.5,
+    3.5,
+    35.25
+   ],
+   "origin": [
+    57,
+    1.5,
+    0
+   ]
+  },
+  {
+   "id": "leg_rb",
+   "name": "Leg",
+   "stock": "s2x4",
+   "size": [
+    1.5,
+    3.5,
+    35.25
+   ],
+   "origin": [
+    57,
+    19,
+    0
+   ]
+  },
+  {
+   "id": "end_top_r",
+   "name": "Top end rail",
+   "stock": "s2x4",
+   "size": [
+    1.5,
+    21,
+    3.5
+   ],
+   "origin": [
+    58.5,
+    1.5,
+    31.75
+   ]
+  },
+  {
+   "id": "end_bot_r",
+   "name": "Bottom end rail",
+   "stock": "s2x4",
+   "size": [
+    1.5,
+    21,
+    3.5
+   ],
+   "origin": [
+    58.5,
+    1.5,
+    4
+   ]
+  },
+  {
+   "id": "apron_f",
+   "name": "Long apron",
+   "stock": "s2x4",
+   "size": [
+    60,
+    1.5,
+    3.5
+   ],
+   "origin": [
+    0,
+    0,
+    31.75
+   ]
+  },
+  {
+   "id": "apron_b",
+   "name": "Long apron",
+   "stock": "s2x4",
+   "size": [
+    60,
+    1.5,
+    3.5
+   ],
+   "origin": [
+    0,
+    22.5,
+    31.75
+   ]
+  },
+  {
+   "id": "rail_mid",
+   "name": "Middle top rail",
+   "stock": "s2x4",
+   "size": [
+    1.5,
+    21,
+    3.5
+   ],
+   "origin": [
+    29.25,
+    1.5,
+    31.75
+   ]
+  },
+  {
+   "id": "low_f",
+   "name": "Shelf rail",
+   "stock": "s2x4",
+   "size": [
+    54,
+    1.5,
+    3.5
+   ],
+   "origin": [
+    3,
+    1.5,
+    4
+   ]
+  },
+  {
+   "id": "low_b",
+   "name": "Shelf rail",
+   "stock": "s2x4",
+   "size": [
+    54,
+    1.5,
+    3.5
+   ],
+   "origin": [
+    3,
+    21,
+    4
+   ]
+  },
+  {
+   "id": "shelf",
+   "name": "Lower shelf",
+   "stock": "ply34",
+   "size": [
+    54,
+    21,
+    0.75
+   ],
+   "origin": [
+    3,
+    1.5,
+    7.5
+   ],
+   "load_kg": 50,
+   "load_type": "uniform",
+   "fasten_to": [
+    "low_f",
+    "low_b"
+   ]
+  },
+  {
+   "id": "top",
+   "name": "Top",
+   "stock": "ply34",
+   "size": [
+    60,
+    24,
+    0.75
+   ],
+   "origin": [
+    0,
+    0,
+    35.25
+   ],
+   "load_kg": 100,
+   "load_type": "uniform"
+  }
+ ],
+ "steps": [
+  {
+   "title": "Left end frame",
+   "group": "end_l",
+   "add": [
+    "leg_lf",
+    "leg_lb",
+    "end_top_l",
+    "end_bot_l"
+   ],
+   "view": "front-left",
+   "text": "Lay both legs flat on the floor, then screw the two end rails across them. Check the frame is square by measuring both diagonals - they should match."
+  },
+  {
+   "title": "Right end frame",
+   "group": "end_r",
+   "add": [
+    "leg_rf",
+    "leg_rb",
+    "end_top_r",
+    "end_bot_r"
+   ],
+   "same_as": 1,
+   "text": "Build the second frame as a mirror image: the rails go on the outside."
+  },
+  {
+   "title": "Stand up the left frame",
+   "attach": "end_l",
+   "view": "front-left",
+   "text": "Stand the left frame upright with the rails facing out."
+  },
+  {
+   "title": "Long aprons",
+   "add": [
+    "apron_f",
+    "apron_b"
+   ],
+   "view": "front-left",
+   "text": "Screw the front and back aprons to the left frame, flush with the top of the legs. A helper or clamps make this much easier."
+  },
+  {
+   "title": "Attach the right frame",
+   "attach": "end_r",
+   "text": "Slide the right frame between the aprons, flush at the top, and screw the aprons to it."
+  },
+  {
+   "title": "Middle rail",
+   "add": [
+    "rail_mid"
+   ],
+   "text": "Fit the middle rail between the aprons, flush with their top. It supports the plywood in the middle."
+  },
+  {
+   "title": "Shelf rails",
+   "add": [
+    "low_f",
+    "low_b"
+   ],
+   "text": "Fit the two shelf rails between the legs, level with the bottom end rails, and screw through the legs."
+  },
+  {
+   "title": "Lower shelf",
+   "add": [
+    "shelf"
+   ],
+   "text": "Drop the shelf onto the rails and screw it down to them."
+  },
+  {
+   "title": "Top",
+   "add": [
+    "top"
+   ],
+   "view": "front-left",
+   "text": "Lay the plywood top flush with the frame on all sides. Screw it into the aprons, end rails and middle rail every 8-10 inches."
+  }
+ ],
+ "tools": [
+  "Circular saw or miter saw",
+  "Drill/driver",
+  "1/8 in drill bit and countersink",
+  "Tape measure, pencil, speed square",
+  "Two clamps"
+ ],
+ "extra_materials": [
+  "Wood glue (optional)"
+ ],
+ "tips": [
+  "Cut all four legs together, clamped side by side, so they come out exactly the same length.",
+  "If the garage floor is uneven, shim under a leg rather than cutting it."
+ ]
+}

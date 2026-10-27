@@ -11,7 +11,10 @@ and stability, plans the cutting and renders the PDF. Dimensions in the PDF are 
 as the model passes `check`.
 
 Reference: `references/model-format.md` (every field), `references/recipes.md` (how typical builds
-are put together). Working examples: `examples/*.json`.
+are put together). Working examples: `examples/*.json` — `wall-shelf` (loads, wall hardware),
+`stool` (point load, sheet sizes and prices), `shoe-rack` (chipboard, confirmat, support rail,
+`fasten_to`), `workbench-in` (inches, sub-assemblies, mirrored frame), `birdhouse` and
+`titmouse-house` (single and gable roofs). Read the one closest to the request before designing.
 
 ## Workflow
 
@@ -40,6 +43,8 @@ beds, cribs and baby furniture, railings and guards, anything structural in a ho
 rafters, decks above ground, stairs). Say so in one or two sentences, suggest a proven plan or a
 professional, and offer something adjacent you can do (a toy box, an under-bed drawer, a low bench).
 A regular low bed, a bench, a stool and shelves are fine — with `load_bearing` and stated loads.
+A stool people stand on is fine up to ~50 cm seat height (one step): give the top `load_kg: 150,
+load_type: "point"` and a base at least as wide as the top. Anything taller to stand on is a ladder.
 
 ## Rules that keep the model honest
 
@@ -85,7 +90,9 @@ cuts and large openings, safety page and disclaimer.
 | `tip_over`, `anchor_children` | widen the base or anchor to the wall (`wall_mount` + hardware + a step). |
 | `load_unspecified` | set `load_kg` on the loaded parts. |
 | `text_too_long` | shorten the title/subtitle/step title. |
-| `step_no_fastener` | the new part is not fastened to anything already built — check the step order. |
+| `step_not_touching` | the new part floats: the message names the nearest part and the gap — fix origin/size. |
+| `step_no_fastener` | the new part touches but nothing could be screwed — check who covers whom. |
+| `load_not_checked` | a load is set but no supports were found — the part must rest on something or butt into uprights. |
 
 ## Limits (tell the user when you hit them)
 

@@ -37,7 +37,7 @@ KEYWORDS = [
 ]
 
 SAG_WARN = 360   # прогиб больше L/360 — заметно на глаз
-SAG_BAD = 180    # больше L/180 — полка «улыбается», надо усиливать
+SAG_BAD = 150    # больше L/150 — полка «улыбается», надо усиливать
 DEFAULT_SHELF_KG_PER_M = 30.0   # книги на полке глубиной ~200–300 мм
 TIP_WARN_DEG = 12.0             # опрокидывается от лёгкого толчка
 ANCHOR_HEIGHT = 600.0           # выше — рекомендуем крепить к стене
@@ -77,57 +77,68 @@ def _horizontal(part):
 
 
 def shelf_sag(prj, part, contacts) -> Sag | None:
-    """Прогиб горизонтальной детали между опорами. None — если опор меньше двух по длине."""
+    """Прогиб горизонтальной детали.
+
+    Опоры — детали снизу и детали, в которые она упирается торцами. Опора, которая тянется вдоль
+    кромки больше чем на половину её длины, — линейная (царга, брусок): если таких две по разные
+    стороны, деталь работает поперёк, на коротком пролёте; если одна (задняя царга) — пролёт вдоль,
+    но свободная передняя кромка прогибается примерно вдвое меньше. None — если пролёт не найден."""
     if not _horizontal(part) or (part.load_kg is None and "load_bearing" not in prj.safety):
         return None
     a, b = part.face_axes
     dims = {a: part.size[a], b: part.size[b]}
     long_ax = max(dims, key=dims.get)
     short_ax = min(dims, key=dims.get)
-    ev = [0.0, 0.0, 0.0]
-    ev[long_ax] = 1.0
-    e = part.dir_to_world(tuple(ev))
-    # опоры: детали снизу и детали, в которые деталь упирается торцами
-    proj = []
+
+    def axis_dir(ax):
+        ev = [0.0, 0.0, 0.0]
+        ev[ax] = 1.0
+        return part.dir_to_world(tuple(ev))
+
+    eL, eS = axis_dir(long_ax), axis_dir(short_ax)
+    ends, lines_long = [], []   # точки опоры вдоль длинной оси; линейные опоры вдоль длинной кромки
     for c in contacts:
         if part.id not in (c.a, c.b):
             continue
         n = c.n if c.a == part.id else G.mul(c.n, -1)   # от детали к опоре
-        below = n[2] < -0.95
-        side = abs(n[2]) < 0.05
-        if not (below or side):
+        if not (n[2] < -0.95 or abs(n[2]) < 0.05):
             continue
-        along = [G.dot(q, e) for q in c.pts]
-        if below and max(along) - min(along) >= 0.5 * dims[long_ax]:
-            return None   # лежит на бруске/царге по всей длине — пролёта поперёк почти нет
-        cen = tuple(sum(p[i] for p in c.pts) / len(c.pts) for i in range(3))
-        proj.append(G.dot(cen, e))
-    if len(proj) < 2:
-        return None
-    span = max(proj) - min(proj)
-    if span < 0.3 * dims[long_ax]:
-        return None
+        along = [G.dot(q, eL) for q in c.pts]
+        across = [G.dot(q, eS) for q in c.pts]
+        if n[2] < -0.95 and max(along) - min(along) >= 0.5 * dims[long_ax]:
+            lines_long.append((min(across) + max(across)) / 2)
+        else:
+            ends.append((min(along) + max(along)) / 2)
+
     E_gpa, rho, creep = MATERIALS[material_of(prj.stock[part.stock])]
-    E = E_gpa * 1000.0                      # Н/мм²
-    bw, h = dims[short_ax], part.thickness
-    I = bw * h ** 3 / 12.0                  # мм⁴
-    point = part.load_type == "point"
-    if part.load_kg is not None:
-        load = part.load_kg
+    E = E_gpa * 1000.0
+    h = part.thickness
+    factor = 1.0
+    def max_gap(xs):  # промежуточная опора делит пролёт: считаем самый длинный участок
+        xs = sorted(xs)
+        return max((b2 - a2 for a2, b2 in zip(xs, xs[1:])), default=0.0)
+
+    if len(lines_long) >= 2 and max(lines_long) - min(lines_long) >= 0.3 * dims[short_ax]:
+        span, bw = max_gap(lines_long), dims[long_ax]                  # работает поперёк
     else:
-        load = DEFAULT_SHELF_KG_PER_M * span / 1000.0
+        if len(ends) < 2 or max(ends) - min(ends) < 0.3 * dims[long_ax]:
+            return None
+        span, bw = max_gap(ends), dims[short_ax]
+        if lines_long:
+            factor = 0.5                                              # задняя кромка подпёрта
+    I = bw * h ** 3 / 12.0
+    point = part.load_type == "point"
+    load = part.load_kg if part.load_kg is not None else DEFAULT_SHELF_KG_PER_M * span / 1000.0
     self_kg = rho * part.size[0] * part.size[1] * part.size[2] * 1e-9
-    w_self = self_kg * G_ACC / span          # Н/мм
+    w_self = self_kg * G_ACC / span
     sag_self = 5 * w_self * span ** 4 / (384 * E * I)
     if point:
-        P = load * G_ACC
-        sag_load = P * span ** 3 / (48 * E * I)
-        k = 1.0                               # кратковременная нагрузка (сели и встали)
+        sag_load = load * G_ACC * span ** 3 / (48 * E * I)
+        k = 1.0                               # сели и встали — кратковременно
     else:
-        w = load * G_ACC / span
-        sag_load = 5 * w * span ** 4 / (384 * E * I)
+        sag_load = 5 * (load * G_ACC / span) * span ** 4 / (384 * E * I)
         k = creep                             # книги стоят годами
-    total = (sag_self + sag_load) * k
+    total = (sag_self + sag_load) * k * factor
     return Sag(part.id, span, load, point, total, span / SAG_WARN, span / SAG_BAD)
 
 

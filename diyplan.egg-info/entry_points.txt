@@ -1,2 +1,0 @@
-[console_scripts]
-diyplan = diyplan.__main__:main

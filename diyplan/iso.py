@@ -151,9 +151,11 @@ def _face_point(part: Part, at, side: str):
 def draw_hardware(c, v: "View", part: Part):
     for hw in part.hardware:
         p, n = _face_point(part, hw.at, hw.side)
-        if not visible(v.n(n)):
-            continue
         x, y = v.pt(p)
+        if not visible(v.n(n)):  # на невидимой стороне — пустой кружок в том же месте
+            c.setStrokeColor(HexColor("#1E1E1E")); c.setLineWidth(0.8)
+            c.circle(x, y, 3.0, fill=0, stroke=1)
+            continue
         c.setFillColor(HexColor("#1E1E1E")); c.setStrokeColor(HexColor("#FFFFFF")); c.setLineWidth(0.8)
         c.circle(x, y, 3.4, fill=1, stroke=1)
         c.setFillColor(HexColor("#FFC93C"))

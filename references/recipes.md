@@ -27,6 +27,21 @@ Sketches of how common builds go together. Coordinates are examples in mm.
   legs and aprons under the seat stop racking.
 - Seat `load_kg: 120, load_type: "point"`; flag `load_bearing`.
 - Seat of several boards side by side is fine (seam); each board is screwed into the aprons/legs.
+- A stool to stand on (≤ 50 cm): top `load_kg: 150, load_type: "point"`; base footprint at least
+  as large as the top; stretchers low between the legs.
+
+## Media unit / TV stand / chest of drawers-like carcasses
+
+- Long top over a divider: the divider is a middle support — the engine splits the span.
+- Anything with a TV on it or taller than ~60 cm in a home with children: `wall_mount` flag, an
+  anti-tip strap or bracket as `hardware` on the back rail, and a final step to fix it.
+
+## Feeders and hanging builds
+
+- A floor with a low rim (raised edge strips, `fasten_to` the floor only), corner posts or two
+  sides, a roof; leave it open on at least two sides.
+- Hanging points (eye screws) as `hardware` on the roof or sides with `side` facing up/out, and
+  the rope/wire in `extra_materials`. A last step "hang it" can be text-only on the roof step.
 
 ## Frames from boards (raised bed, garden box)
 

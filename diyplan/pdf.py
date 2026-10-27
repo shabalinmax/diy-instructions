@@ -355,7 +355,8 @@ def draw_part_2d(c, f: Fmt, p, x, y, w, h, max_scale=0.6):
             c.setDash()
             rr = hh.radius * scale
             text(c, hx + rr + 3, hy + 2, _hole_label(f, hh), 7.5, bold=True, color=ACCENT)
-            text(c, hx + rr + 3, hy - 8, f"{f.num(hh.at[0] - u0)} / {f.num(hh.at[1] - v0)}", 6.5, color=ACCENT)
+            text(c, hx + rr + 3, hy - 8, f.t("center_at", u=f.num(hh.at[0] - u0), v=f.num(hh.at[1] - v0)),
+                 6.5, color=ACCENT)
     for m in p.hardware:
         hx, hy = P(m.at)
         c.setFillColor(INK); c.circle(hx, hy, 2.6, fill=1, stroke=0)
@@ -451,6 +452,7 @@ def cut_section(d: Doc, uses, hints=()):
         y = d.y - 6 - bh
         c.setFillColor(HexColor("#EDEDED")); c.setStrokeColor(MUTED); c.setLineWidth(0.6)
         c.rect(M, y, u.length * sc, u.width * sc, fill=1, stroke=1)
+        outside = []
         for pl in u.placed:
             x0 = M + pl.x * sc
             y0 = y + (u.width - pl.y - pl.h) * sc
@@ -463,12 +465,26 @@ def cut_section(d: Doc, uses, hints=()):
                 iso.label(c, mid, y0 + ph / 2 + 4, pl.piece.letter, r=7, size=8 if len(pl.piece.letter) == 1 else 6)
                 if c.stringWidth(dims, "DejaVu", 6.5) < pw - 2:
                     text(c, mid, y0 + 3, dims, 6.5, align="center")
-            elif pw > 14:
+            else:
                 label = f"{pl.piece.letter} {dims}"
-                if c.stringWidth(label, "DejaVu-Bold", 6.5) > pw - 2:
-                    label = pl.piece.letter
-                text(c, mid, y0 + ph / 2 - 3, label, 6.5, bold=True, align="center")
-        d.y = y - 8
+                if c.stringWidth(label, "DejaVu-Bold", 7) <= pw - 4 and ph >= 8:
+                    text(c, mid, y0 + ph / 2 - 3, label, 7, bold=True, align="center")
+                else:  # узкая полоска — подпись снаружи с выноской
+                    outside.append((mid, y0 + ph / 2, label))
+        ly = y - 12
+        lx = M
+        for mx, my, label in sorted(outside):
+            w_ = c.stringWidth(label, "DejaVu-Bold", 7) + 10
+            x_ = max(lx, mx - 4)               # подпись под своей полоской, если есть место
+            if x_ + w_ > M + bar_w:
+                ly -= 11
+                x_ = max(M, mx - 4) if mx - 4 + w_ <= M + bar_w else M + bar_w - w_
+            c.setStrokeColor(MUTED); c.setLineWidth(0.4)
+            c.line(mx, y, mx, ly + 8)
+            c.line(mx, ly + 8, x_ + 4, ly + 8)
+            text(c, x_ + 4, ly, label, 7, bold=True)
+            lx = x_ + w_
+        d.y = (ly - 8) if outside else (y - 8)
 
 
 def fmt_money(x, currency):
@@ -584,17 +600,21 @@ def _step_side(c, d: Doc, si, rx, ry, colw, cur, shown, draw=True, dims=(), scen
     if st.group:
         notes.append(f.t("subassembly"))
     if st.same_as:
-        notes.append(f.t("same_as", n=st.same_as))
+        notes.append(f.t("same_as_mirror" if st.mirror else "same_as", n=st.same_as))
     for note in notes:
         ry = para(c, rx, ry + 4, note, colw, 8.5, color=MUTED, bold=True, draw=draw) - 6
     if st.add:
         letters = Counter(prj.part(pid).letter for pid in st.add)
         for L, n in sorted(letters.items(), key=lambda kv: (len(kv[0]), kv[0])):
+            name = next(p.name for p in prj.parts if p.letter == L)
+            lines = wrap(f"×{n}  {name}", colw - 28, 10, True)
+            if len(lines) > 2:
+                lines = [lines[0], fit_text(c, " ".join(lines[1:]), colw - 28, 10, True)]
             if draw:
                 iso.label(c, rx + 10, ry, L, r=10, size=11 if len(L) == 1 else 8)
-                name = next(p.name for p in prj.parts if p.letter == L)
-                text(c, rx + 26, ry - 4, fit_text(c, f"×{n}  {name}", colw - 28, 10, True), 10, bold=True)
-            ry -= 26
+                for k2, line in enumerate(lines):
+                    text(c, rx + 26, ry - 4 - k2 * 12, line, 10, bold=True)
+            ry -= 26 + 12 * (len(lines) - 1)
     for k, n in sorted(Counter(s.key for s in cur).items()):
         if draw:
             screw_icon(c, rx + 10, ry - 14)
@@ -774,8 +794,6 @@ def _template_region(p):
     pts = []
     for hh in template_holes(p):
         pts += [(hh.at[0] + du - u0, hh.at[1] + dv - v0) for du, dv in hh.outline(16)]
-    for m in p.hardware:
-        pts.append((m.at[0] - u0, m.at[1] - v0))
     on_box = lambda q: abs(q[0]) < 0.5 or abs(q[0] - fa) < 0.5 or abs(q[1]) < 0.5 or abs(q[1] - fb) < 0.5
     for i in range(len(prof)):
         a = (prof[i][0] - u0, prof[i][1] - v0)
@@ -855,8 +873,9 @@ def templates_section(d: Doc, limit_pages=16):
 
     for p, region in parts:
         nx, ny = tiles(region)
-        if nx * ny <= 4:
-            emit(p, region)
+        if nx * ny <= 2 or not template_holes(p):
+            if nx * ny <= 4:
+                emit(p, region)
             continue
         # большая деталь: прямые резы проще разметить рулеткой, шаблон — только на проёмы
         prof = p.profile("-t") + p.profile("+t")
@@ -888,7 +907,8 @@ def _template_tile(d, p, region, x0, y0, tw, th, ov, i, j, nx, ny, hole_only=Fal
     right_w = bar * MM + 8
     left_w = W - 2 * TPL_MARGIN - right_w - 30
     text(c, TPL_MARGIN + 26, top - 12, fit_text(c, head, W - 2 * TPL_MARGIN - 30, 10, True), 10, bold=True)
-    note = f.t("tpl_print") + " " + (f.t("tpl_hole_only") if hole_only else f.t("tpl_origin"))
+    note = f.t("tpl_print") + (" " + f.t("tpl_glue") if nx * ny > 1 else "") + " " + \
+        (f.t("tpl_hole_only") if hole_only else f.t("tpl_origin"))
     para(c, TPL_MARGIN, top - 28, note, left_w + 26, 7, color=MUTED)
     bx, by = W - TPL_MARGIN - bar * MM, top - 32
     c.setStrokeColor(INK); c.setLineWidth(1)
@@ -946,8 +966,8 @@ def _template_tile(d, p, region, x0, y0, tw, th, ov, i, j, nx, ny, hole_only=Fal
         c.setStrokeColor(INK); c.setLineWidth(0.9); c.drawPath(path, fill=0, stroke=1)
         hx, hy = P(hh.at)
         _crosshair(c, hx, hy, 6 * MM)
-        text(c, hx + 2 * MM, hy + 2 * MM,
-             f"{_hole_label(f, hh)}  {f.num(hh.at[0] - u0)} / {f.num(hh.at[1] - v0)}", 7, bold=True, color=ACCENT)
+        text(c, hx + 2 * MM, hy + 2 * MM, f"{_hole_label(f, hh)} · " +
+             f.t("center_at", u=f.num(hh.at[0] - u0), v=f.num(hh.at[1] - v0)), 7, bold=True, color=ACCENT)
     for m in p.hardware:
         hx, hy = P(m.at)
         _crosshair(c, hx, hy, 4 * MM)

@@ -86,19 +86,22 @@ class Hole:
         if self.shape == "slot":  # скруглённые торцы по короткой стороне
             if self.w >= self.h:
                 r, c = h, w - h
-                arc = lambda cx, a0: [(cx + r * math.cos(a0 + math.pi * k / 12), r * math.sin(a0 + math.pi * k / 12))
-                                      for k in range(13)]
+                m = max(12, n // 2)
+                arc = lambda cx, a0: [(cx + r * math.cos(a0 + math.pi * k / m), r * math.sin(a0 + math.pi * k / m))
+                                      for k in range(m + 1)]
                 return arc(c, -math.pi / 2) + arc(-c, math.pi / 2)
             r, c = w, h - w
-            arc = lambda cy, a0: [(r * math.cos(a0 + math.pi * k / 12), cy + r * math.sin(a0 + math.pi * k / 12))
-                                  for k in range(13)]
+            m = max(12, n // 2)
+            arc = lambda cy, a0: [(r * math.cos(a0 + math.pi * k / m), cy + r * math.sin(a0 + math.pi * k / m))
+                                  for k in range(m + 1)]
             return arc(-c, math.pi) + arc(c, 0)
         if self.shape == "arch":  # прямоугольник с полукруглым верхом, h — полная высота
             r = w
             base = -h
             top = h - r
             pts = [(-w, base), (w, base), (w, top)]
-            pts += [(r * math.cos(math.pi * k / 16), top + r * math.sin(math.pi * k / 16)) for k in range(1, 16)]
+            m = max(16, n)
+            pts += [(r * math.cos(math.pi * k / m), top + r * math.sin(math.pi * k / m)) for k in range(1, m)]
             pts += [(-w, top)]
             return pts
         raise ValueError(self.shape)
@@ -260,9 +263,10 @@ class Step:
     glue: bool = False
     view: str = "front-right"
     group: str | None = None      # шаг собирает отдельный узел (лежанку, раму) на столе
-    attach: str | None = None     # шаг ставит собранный узел на основную сборку
+    attach: object = None         # шаг ставит собранный узел (или список узлов) на основную сборку
     times: int = 1                # «сделайте N таких»
     same_as: int | None = None    # номер шага-образца (1-based): «так же, как в шаге N»
+    mirror: bool = False          # «…но зеркально»
 
 
 @dataclass
@@ -556,7 +560,7 @@ def load_dict(raw: dict) -> Project:
     parts = [_build_part(p, errors) for p in raw["parts"]]
     steps = [Step(s["title"], s.get("add", []), s.get("focus", []), s.get("text", ""), s.get("glue", False),
                   s.get("view", "front-right"), s.get("group"), s.get("attach"), int(s.get("times", 1)),
-                  s.get("same_as")) for s in raw["steps"]]
+                  s.get("same_as"), bool(s.get("mirror", False))) for s in raw["steps"]]
     prj = Project(
         title=raw["title"], subtitle=raw.get("subtitle", ""),
         difficulty=raw.get("difficulty", ""), time=raw.get("time", ""),
@@ -783,8 +787,9 @@ def step_scenes(prj: Project):
     out = []
     for st in prj.steps:
         if st.attach:
-            g = groups.get(st.attach, [])
-            out.append((list(main), list(g), "attach"))
+            names = st.attach if isinstance(st.attach, list) else [st.attach]
+            g = [pid for nm in names for pid in groups.get(nm, [])] + list(st.add)
+            out.append((list(main), g, "attach"))
             main += g
         elif st.group:
             g = groups.setdefault(st.group, [])
@@ -807,16 +812,18 @@ def plan_screws(prj: Project, issues: list | None = None) -> dict[int, list[Scre
     contacts = all_contacts(prj)
     holes = _hole_axes(prj)
     accepted: list[Screw] = []
+    group_of = {pid: st.group for st in prj.steps if st.group for pid in st.add}
     for si, (old_ids, new_ids, mode) in enumerate(step_scenes(prj)):
         new, old = set(new_ids), set(old_ids)
         cur: list[Screw] = []
         for c in contacts:
             ids = {c.a, c.b}
-            if mode == "attach":
-                if not (len(ids & new) == 1 and len(ids & old) == 1):
-                    continue  # внутри узла всё прикручено на его шагах
-            elif not (ids & new and ids <= (old | new)):
+            if not (ids & new and ids <= (old | new)):
                 continue
+            if mode == "attach":
+                ga, gb = group_of.get(c.a), group_of.get(c.b)
+                if ga is not None and ga == gb:
+                    continue  # внутри узла всё прикручено на его шагах
             newer = next(iter(ids & new)) if len(ids & new) == 1 else None
             slot = joint_slot(prj, c, newer)
             if slot is None:
@@ -875,7 +882,7 @@ def plan_screws(prj: Project, issues: list | None = None) -> dict[int, list[Scre
                 if not done and reason:
                     failures.append(reason)
             # молчим, если длинный стык потерял один из многих; шумим, если узел ослаб заметно
-            if failures and (got == 0 or len(base) <= 2):
+            if failures and got == 0:
                 why, obj = failures[0]
                 if why == "deep":
                     note(warn("screw_too_long", [slot.f.id], a=c.a, b=c.b, part=slot.f.id, t=Mm(max(obj, 0))))
@@ -1013,7 +1020,8 @@ def validate(prj: Project) -> list[Issue]:
             if pid not in ids:
                 out.append(err("step_unknown_part", [pid], step=s.title, part=pid))
     groups = {s.group for s in prj.steps if s.group}
-    attached = [s.attach for s in prj.steps if s.attach]
+    attached = [nm for s in prj.steps if s.attach
+                for nm in (s.attach if isinstance(s.attach, list) else [s.attach])]
     for gname in attached:
         if gname not in groups:
             out.append(err("attach_unknown", [], step=gname, group=gname))
@@ -1037,7 +1045,14 @@ def validate(prj: Project) -> list[Issue]:
         per_step = plan_screws(prj, out)
         for si, (old_ids, new_ids, mode) in enumerate(step_scenes(prj)):
             if new_ids and old_ids and not per_step[si]:
-                out.append(warn("step_no_fastener", new_ids, step=prj.steps[si].title))
+                # ближайшая уже стоящая деталь и зазор до неё — обычно причина в координатах
+                best = min(((G.separation(prj.part(n).poly, prj.part(o).poly), n, o)
+                            for n in new_ids for o in old_ids), key=lambda t: t[0])
+                if best[0] > CONTACT_TOL:
+                    out.append(warn("step_not_touching", new_ids, step=prj.steps[si].title,
+                                    part=best[1], other=best[2], gap=Mm(best[0])))
+                else:
+                    out.append(warn("step_no_fastener", new_ids, step=prj.steps[si].title))
     return out
 
 
@@ -1045,7 +1060,7 @@ def structure_report(prj: Project, contacts=None):
     from . import structure as S
     contacts = contacts if contacts is not None else all_contacts(prj)
     sags = [x for p in prj.parts if (x := S.shelf_sag(prj, p, contacts))]
-    stab = None if "wall_mount" in prj.safety else S.stability(prj, sags)
+    stab = S.stability(prj, sags)
     return sags, stab
 
 
@@ -1054,6 +1069,10 @@ def _structure_check(prj: Project, contacts, out: list):
     sags, stab = structure_report(prj, contacts)
     if "load_bearing" in prj.safety and sags and all(prj.part(x.part).load_kg is None for x in sags):
         out.append(warn("load_unspecified", [x.part for x in sags], kgm=round(S.DEFAULT_SHELF_KG_PER_M)))
+    checked = {x.part for x in sags}
+    for p in prj.parts:
+        if p.load_kg is not None and p.id not in checked:
+            out.append(warn("load_not_checked", [p.id], part=p.id))
     for x in sags:
         p = prj.part(x.part)
         params = dict(part=x.part, kg=round(x.load_kg), sag=Mm(x.sag), span=Mm(x.span),
@@ -1064,11 +1083,11 @@ def _structure_check(prj: Project, contacts, out: list):
             out.append(warn("sag_warn", [x.part], **params))
     if stab is None:
         return
-    if stab.margin < 0:
+    if stab.margin < 0 and "wall_mount" not in prj.safety:
         out.append(err("unstable", []))
-    elif stab.height > 400 and stab.tip_deg < S.TIP_WARN_DEG:
+    elif stab.height > 400 and stab.tip_deg < S.TIP_WARN_DEG and "wall_mount" not in prj.safety:
         out.append(warn("tip_over", [], deg=round(stab.tip_deg, 1)))
-    if stab.height > S.ANCHOR_HEIGHT and "children" in prj.safety:
+    if stab.height > S.ANCHOR_HEIGHT and "children" in prj.safety and "wall_mount" not in prj.safety:
         out.append(warn("anchor_children", [], h=Mm(stab.height)))
 
 
