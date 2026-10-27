@@ -219,6 +219,8 @@ def cover(d: Doc, total_screws: Counter, uses):
     buy += [f.t("screws_line", spec=f.screw(*k), n=n) for k, n in sorted(total_screws.items())]
     buy += list(prj.extra_materials)
     two_columns(d, 240, (f.t("buy"), buy), (f.t("tools"), list(prj.tools)), col)
+    if d.page == 1 and d.y > BOTTOM + 30:
+        para(c, M, BOTTOM + 14, f.t("disclaimer"), W - 2 * M, 6.5, color=MUTED)
 
 
 def two_columns(d: Doc, y0, left, right, col):
@@ -452,18 +454,36 @@ def steps_section(d: Doc, screws_by_step):
     d.y = TOP - slot * half
 
 
-def tips_section(d: Doc):
-    if not d.prj.tips:
-        return
-    c, f = d.c, d.fmt
-    d.new_page()
-    d.heading(f.t("tips_title"))
-    d.y -= 10
-    for t in d.prj.tips:
+def _bullets(d: Doc, title, items, mark="!", fill="#D9381E"):
+    c = d.c
+    for t in items:
         h = len(wrap(t, W - 2 * M - 30, 10.5)) * 10.5 * 1.35 + 10
-        d.need(h, f.t("tips_title"))
-        iso.label(c, M + 10, d.y + 3, "!", r=10, fill="#D9381E", size=11)
+        d.need(h, title)
+        iso.label(c, M + 10, d.y + 3, mark, r=10, fill=fill, size=11)
         d.y = para(c, M + 30, d.y, t, W - 2 * M - 30, 10.5) - 10
+
+
+def tips_section(d: Doc):
+    """«Важно» из модели + блок безопасности (общий и по флагам safety) + дисклеймер."""
+    c, f, prj = d.c, d.fmt, d.prj
+    d.new_page()
+    if prj.tips:
+        d.heading(f.t("tips_title"))
+        d.y -= 10
+        _bullets(d, f.t("tips_title"), prj.tips)
+        d.y -= 16
+    d.need(80)
+    d.heading(f.t("safety_title"))
+    d.y -= 10
+    items = [f.t("safety_" + flag) for flag in prj.safety] + [f.t("safety_general")]
+    _bullets(d, f.t("safety_title"), items, mark="▲", fill="#1E1E1E")
+    disc = (prj.disclaimer + "\n\n" if prj.disclaimer else "") + f.t("disclaimer")
+    h = len(wrap(disc, W - 2 * M - 20, 8.5)) * 8.5 * 1.4 + 20
+    d.need(h + 10)
+    d.y -= 8
+    c.setFillColor(HexColor("#F3F1EC"))
+    c.roundRect(M, d.y - h + 8, W - 2 * M, h, 6, fill=1, stroke=0)
+    d.y = para(c, M + 10, d.y - 6, disc, W - 2 * M - 20, 8.5, leading=8.5 * 1.4, color=MUTED) - 10
 
 
 def build(prj: Project, out: str):

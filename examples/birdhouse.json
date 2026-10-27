@@ -4,6 +4,9 @@
   "difficulty": "Лёгкая",
   "time": "2–3 часа",
   "kerf": 3,
+  "safety": [
+    "outdoor"
+  ],
   "stock": [
     {
       "id": "board20",

@@ -127,6 +127,13 @@ MESSAGES: dict[str, dict[str, str]] = {
         "screws_hidden_all": "Саморезы — с невидимой на рисунке стороны",
         "tips_title": "Важно",
         "continued": "(продолжение)",
+        "safety_title": "Безопасность",
+        "disclaimer": "Инструкция сгенерирована автоматически по 3D-модели. Перед распилом сверьте размеры с вашим материалом. Прочность конструкции не рассчитывается: за безопасность изготовления и использования отвечаете вы.",
+        "safety_general": "Работайте в защитных очках, электроинструмент используйте по инструкции производителя. Держите пальцы подальше от линии реза.",
+        "safety_load_bearing": "Несущая конструкция: прочность проверена только приблизительно. Не превышайте указанную нагрузку, при сомнениях усиливайте крепёж и берите материал толще.",
+        "safety_children": "Для детей: скруглите углы и кромки, отшлифуйте всё до гладкости, утопите шляпки саморезов, используйте безопасные покрытия. Высокую мебель обязательно крепите к стене.",
+        "safety_outdoor": "Для улицы: берите оцинкованный или нержавеющий крепёж и водостойкий клей (класс D3/D4).",
+        "safety_wall_mount": "Крепление к стене: дюбели подбирайте под материал стены и вес, проверьте, что в месте сверления нет проводки и труб.",
     },
     "en": {
         "unit_mm": "mm", "unit_mm_long": "millimetres", "unit_in_long": "inches",
@@ -183,6 +190,13 @@ MESSAGES: dict[str, dict[str, str]] = {
         "screws_hidden_all": "Screws go in from the side hidden in the picture",
         "tips_title": "Important",
         "continued": "(continued)",
+        "safety_title": "Safety",
+        "disclaimer": "These instructions were generated automatically from a 3D model. Check the dimensions against your material before cutting. Structural strength is not calculated: you are responsible for safe building and use.",
+        "safety_general": "Wear safety glasses and follow the manufacturer's instructions for power tools. Keep fingers away from the cut line.",
+        "safety_load_bearing": "Load-bearing build: strength is checked only roughly. Do not exceed the stated load; when in doubt, add fasteners or use thicker stock.",
+        "safety_children": "For children: round over corners and edges, sand everything smooth, countersink screw heads, use child-safe finishes. Always anchor tall furniture to the wall.",
+        "safety_outdoor": "Outdoors: use galvanized or stainless fasteners and waterproof (D3/D4, Type II) glue.",
+        "safety_wall_mount": "Wall mounting: choose anchors for your wall type and the load, and check for wiring and pipes before drilling.",
     },
 }
 

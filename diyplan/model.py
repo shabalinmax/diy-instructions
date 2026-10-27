@@ -23,6 +23,9 @@ CONTACT_TOL = 0.05   # мм: грани считаются касающимис�
 GAP_WARN = 10.0      # мм: меньший зазор — подозрительно похоже на ошибку
 
 
+SAFETY_FLAGS = ("load_bearing", "children", "outdoor", "wall_mount")
+
+
 class Mm(float):
     """Длина в мм внутри параметров сообщения — при выводе форматируется в нужные единицы."""
 
@@ -219,7 +222,7 @@ class Project:
     lang: str = "ru"
     units: str = "mm"
     disclaimer: str = ""
-    load_bearing: bool = False
+    safety: list = field(default_factory=list)   # load_bearing, children, outdoor, wall_mount
 
     def part(self, pid: str) -> Part:
         for p in self.parts:
@@ -403,6 +406,9 @@ def _check_raw(raw: dict) -> list:
                 out.append(err("missing_field", [where], where=f"{where}.rotate[{j}]", field="deg | rise+run"))
     for i, st in enumerate(raw.get("steps", [])):
         need(st, ("title",), f"steps[{i}]")
+    for flag in raw.get("safety", []):
+        if flag not in SAFETY_FLAGS:
+            out.append(err("bad_value", where="safety", field="safety", value=f"{flag} ({', '.join(SAFETY_FLAGS)})"))
     return out
 
 
@@ -443,7 +449,7 @@ def load_dict(raw: dict) -> Project:
         tools=raw.get("tools", []), tips=raw.get("tips", []),
         extra_materials=raw.get("extra_materials", []), build_errors=errors,
         lang=lang, units=units, disclaimer=raw.get("disclaimer", ""),
-        load_bearing=raw.get("load_bearing", False),
+        safety=list(raw.get("safety", [])),
     )
     if not errors:
         _apply_snaps(prj)
