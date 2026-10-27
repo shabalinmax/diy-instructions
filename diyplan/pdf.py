@@ -216,7 +216,8 @@ def cover(d: Doc, total_screws: Counter, uses):
 
     col = (W - 2 * M - 20) / 2
     buy = [f.t("stock_line", name=name, n=n) for name, n in cutlist.shopping(prj, uses, f)]
-    buy += [f.t("screws_line", spec=f.screw(*k), n=n) for k, n in sorted(total_screws.items())]
+    buy += [f.t("confirmat_line" if k[0] == "confirmat" else "screws_line", spec=f.screw(*k), n=n)
+            for k, n in sorted(total_screws.items())]
     buy += list(prj.extra_materials)
     two_columns(d, 240, (f.t("buy"), buy), (f.t("tools"), list(prj.tools)), col)
     if d.page == 1 and d.y > BOTTOM + 30:
@@ -389,7 +390,8 @@ def _step_side(c, d: Doc, si, rx, ry, colw, cur, shown, draw=True):
         if draw:
             screw_icon(c, rx + 10, ry - 14)
             text(c, rx + 26, ry - 4, f"×{n}", 12, bold=True)
-            text(c, rx + 26, ry - 16, f.t("screw_spec", spec=f.screw(*k)), 8, color=MUTED)
+            text(c, rx + 26, ry - 16, f.t("confirmat_spec" if k[0] == "confirmat" else "screw_spec",
+                                         spec=f.screw(*k)), 8, color=MUTED)
         ry -= 36
     if st.glue:
         if draw:

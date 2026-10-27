@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 
 from . import geom as G
 
-SCREW_LENGTHS = [16, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100]
+SCREW_LENGTHS = [16, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100, 120]
 CONTACT_TOL = 0.05   # мм: грани считаются касающимися
 GAP_WARN = 10.0      # мм: меньший зазор — подозрительно похоже на ошибку
 
@@ -63,9 +63,57 @@ def warn(code, ids=(), **params):
 
 @dataclass
 class Hole:
+    """Сквозной проём в пласти: круг (d), прямоугольник/паз/арка (w×h). at — центр."""
     d: float
     at: tuple[float, float]  # центр в осях пласти заготовки, от её минимального угла
     name: str = "Отверстие"
+    shape: str = "circle"    # circle | rect | slot | arch
+    w: float = 0.0
+    h: float = 0.0
+
+    @property
+    def size_label_mm(self):
+        return (self.d,) if self.shape == "circle" else (self.w, self.h)
+
+    def outline(self, n=40):
+        """Контур относительно центра (du, dv), против часовой."""
+        if self.shape == "circle":
+            r = self.d / 2
+            return [(r * math.cos(2 * math.pi * k / n), r * math.sin(2 * math.pi * k / n)) for k in range(n)]
+        w, h = self.w / 2, self.h / 2
+        if self.shape == "rect":
+            return [(-w, -h), (w, -h), (w, h), (-w, h)]
+        if self.shape == "slot":  # скруглённые торцы по короткой стороне
+            if self.w >= self.h:
+                r, c = h, w - h
+                arc = lambda cx, a0: [(cx + r * math.cos(a0 + math.pi * k / 12), r * math.sin(a0 + math.pi * k / 12))
+                                      for k in range(13)]
+                return arc(c, -math.pi / 2) + arc(-c, math.pi / 2)
+            r, c = w, h - w
+            arc = lambda cy, a0: [(r * math.cos(a0 + math.pi * k / 12), cy + r * math.sin(a0 + math.pi * k / 12))
+                                  for k in range(13)]
+            return arc(-c, math.pi) + arc(c, 0)
+        if self.shape == "arch":  # прямоугольник с полукруглым верхом, h — полная высота
+            r = w
+            base = -h
+            top = h - r
+            pts = [(-w, base), (w, base), (w, top)]
+            pts += [(r * math.cos(math.pi * k / 16), top + r * math.sin(math.pi * k / 16)) for k in range(1, 16)]
+            pts += [(-w, top)]
+            return pts
+        raise ValueError(self.shape)
+
+    @property
+    def radius(self):
+        return max(math.hypot(u, v) for u, v in self.outline(24))
+
+
+@dataclass
+class Hardware:
+    """Фурнитура на пласти: крючок, петля для подвеса, точка крепления к стене."""
+    name: str
+    at: tuple[float, float]
+    side: str = "+t"
 
 
 @dataclass
@@ -77,6 +125,7 @@ class Part:
     origin: tuple = (0.0, 0.0, 0.0)
     R: tuple = G.IDENT
     holes: list[Hole] = field(default_factory=list)
+    hardware: list[Hardware] = field(default_factory=list)
     removable: bool = False
     fasten_to: list[str] = field(default_factory=list)
     note: str = ""
@@ -171,6 +220,7 @@ class Screw:
     normal: tuple  # наружная нормаль этой пласти
     d: float
     length: int
+    kind: str = "screw"   # screw | confirmat
 
     @property
     def spec(self):
@@ -178,7 +228,7 @@ class Screw:
 
     @property
     def key(self):
-        return (self.d, self.length)
+        return (self.kind, self.d, self.length)
 
 
 @dataclass
@@ -223,6 +273,9 @@ class Project:
     units: str = "mm"
     disclaimer: str = ""
     safety: list = field(default_factory=list)   # load_bearing, children, outdoor, wall_mount
+    fastener: str = "auto"                        # auto | screw | confirmat
+    gaps_ok: list = field(default_factory=list)   # пары деталей, между которыми зазор задуман
+    cover_view: str = "front-right"
 
     def part(self, pid: str) -> Part:
         for p in self.parts:
@@ -245,6 +298,16 @@ def _box(size, thick_axis):
     return G.Poly(planes)
 
 
+def _repeat(item):
+    """at + repeat {n, step:[du, dv]} → список центров."""
+    at = list(map(float, item["at"]))
+    rep = item.get("repeat")
+    if not rep:
+        return [at]
+    du, dv = rep.get("step", [0, 0])
+    return [[at[0] + k * du, at[1] + k * dv] for k in range(int(rep.get("n", 1)))]
+
+
 def _rotation(spec):
     if not spec:
         return G.IDENT
@@ -262,7 +325,11 @@ def _build_part(p: dict, errors: list) -> Part:
     size = tuple(map(float, p["size"]))
     part = Part(
         id=p["id"], name=p["name"], stock=p["stock"], size=size,
-        holes=[Hole(h["d"], tuple(h["at"]), h.get("name", "Отверстие")) for h in p.get("holes", [])],
+        holes=[Hole(float(h.get("d", 0)), tuple(at), h.get("name", "Отверстие"), h.get("shape", "circle"),
+                    float(h.get("w", 0)), float(h.get("h", 0)))
+               for h in p.get("holes", []) for at in _repeat(h)],
+        hardware=[Hardware(x["name"], tuple(at), x.get("side", "+t"))
+                  for x in p.get("hardware", []) for at in _repeat(x)],
         removable=p.get("removable", False), fasten_to=p.get("fasten_to", []), note=p.get("note", ""),
     )
     local = _box(size, part.thick_axis)
@@ -356,8 +423,12 @@ def _to_mm(raw: dict):
         for key in LENGTH_KEYS_PART:
             if key in p:
                 p[key] = _scale(p[key], k)
-        for h in p.get("holes", []):
-            h["d"], h["at"] = h["d"] * k, _scale(h["at"], k)
+        for h in p.get("holes", []) + p.get("hardware", []):
+            for key in ("d", "w", "h", "at"):
+                if key in h:
+                    h[key] = _scale(h[key], k)
+            if "repeat" in h and "step" in h["repeat"]:
+                h["repeat"]["step"] = _scale(h["repeat"]["step"], k)
         for c in p.get("cuts", []):
             for key in ("from", "to", "keep"):
                 if key in c:
@@ -386,7 +457,16 @@ def _check_raw(raw: dict) -> list:
         if "size" in p and (len(p["size"]) != 3 or min(p["size"]) <= 0):
             out.append(err("bad_value", [where], where=where, field="size", value=p["size"]))
         for j, h in enumerate(p.get("holes", [])):
-            need(h, ("d", "at"), f"{where}.holes[{j}]")
+            need(h, ("at",), f"{where}.holes[{j}]")
+            shape = h.get("shape", "circle")
+            if shape not in ("circle", "rect", "slot", "arch"):
+                out.append(err("bad_value", [where], where=f"{where}.holes[{j}]", field="shape", value=shape))
+            elif shape == "circle":
+                need(h, ("d",), f"{where}.holes[{j}]")
+            else:
+                need(h, ("w", "h"), f"{where}.holes[{j}]")
+        for j, x in enumerate(p.get("hardware", [])):
+            need(x, ("name", "at"), f"{where}.hardware[{j}]")
         for j, c in enumerate(p.get("cuts", [])):
             need(c, ("from", "to"), f"{where}.cuts[{j}]")
         for j, tr in enumerate(p.get("trim", [])):
@@ -450,6 +530,8 @@ def load_dict(raw: dict) -> Project:
         extra_materials=raw.get("extra_materials", []), build_errors=errors,
         lang=lang, units=units, disclaimer=raw.get("disclaimer", ""),
         safety=list(raw.get("safety", [])),
+        fastener=raw.get("fastener", "auto"), gaps_ok=raw.get("gaps_ok", []),
+        cover_view=raw.get("cover_view", "front-right"),
     )
     if not errors:
         _apply_snaps(prj)
@@ -563,7 +645,43 @@ def joint_slot(prj: Project, c: Contact, newer: str | None = None) -> Slot | Non
 
 
 def _diameter(t: Part) -> float:
-    return 3.0 if t.thickness <= 12 else 3.5 if t.thickness <= 25 else 4.0
+    return 3.0 if t.thickness <= 12 else 3.5 if t.thickness <= 25 else 4.0 if t.thickness <= 32 else 5.0
+
+
+def _long_dir(p: Part):
+    a, b = p.face_axes
+    ax = a if p.size[a] >= p.size[b] else b
+    e = [0.0, 0.0, 0.0]
+    e[ax] = 1.0
+    return p.dir_to_world(tuple(e))
+
+
+def is_seam(prj: Project, c: Contact) -> bool:
+    """Доски бок о бок в одной плоскости (щит, стенка из досок, сиденье из реек):
+    это шов по длинным кромкам, а не узел — его держит обвязка, саморез туда не нужен.
+    Стык торец в торец (наращивание по длине) — не шов."""
+    if c.tag_a in ("+t", "-t") or c.tag_b in ("+t", "-t"):
+        return False
+    a, b = prj.part(c.a), prj.part(c.b)
+    ea = [0.0, 0.0, 0.0]; ea[a.thick_axis] = 1.0
+    eb = [0.0, 0.0, 0.0]; eb[b.thick_axis] = 1.0
+    na, nb = a.dir_to_world(tuple(ea)), b.dir_to_world(tuple(eb))
+    if abs(G.dot(na, nb)) < 0.99 or abs(G.dot(na, c.n)) > 0.05:
+        return False
+    return abs(G.dot(_long_dir(a), c.n)) < 0.5 and abs(G.dot(_long_dir(b), c.n)) < 0.5
+
+
+def fastener_for(prj: Project, slot: "Slot") -> str:
+    """Конфирмат — в кромку ЛДСП/МДФ (там саморез держит плохо), если проект не просит иного."""
+    from .structure import material_of
+    mode = prj.fastener
+    if mode in ("screw", "confirmat"):
+        return mode
+    into_edge = (slot.c.tag_b if slot.t.id == slot.c.a else slot.c.tag_a) not in ("+t", "-t")
+    mat = material_of(prj.stock[slot.f.stock])
+    if into_edge and mat in ("chipboard", "mdf") and slot.f.thickness >= 15:
+        return "confirmat"
+    return "screw"
 
 
 def _screw_at(slot: Slot, s: float) -> tuple | None:
@@ -575,20 +693,32 @@ def _screw_at(slot: Slot, s: float) -> tuple | None:
     return p, depth
 
 
-def _make_screw(slot: Slot, p, depth) -> Screw | None:
+CONFIRMAT_LENGTHS = [50, 60, 70]
+
+
+def _make_screw(slot: Slot, p, depth, kind="screw") -> Screw | None:
+    """Длина ≈ 2,5 толщины пробиваемой детали (заглубление ~1,5 толщины), но так, чтобы не вылезти."""
     t = slot.t
-    d = _diameter(t)
     room = depth - 3.0
     if room < MIN_EMBED:
         return None
+    if kind == "confirmat":
+        fit = [L for L in CONFIRMAT_LENGTHS if MIN_EMBED <= L - t.thickness <= room]
+        if not fit:
+            return None
+        good = [x for x in fit if x - t.thickness >= 32]
+        L = min(good) if good else max(fit)
+        entry = G.sub(p, G.mul(slot.n_t, t.thickness))
+        return Screw(t.id, slot.f.id, entry, G.mul(slot.n_t, -1), 7.0, L, "confirmat")
+    target = min(room, max(25.0, 1.5 * t.thickness))
     length = None
-    for L in SCREW_LENGTHS:  # самый длинный стандартный, что влезает, но не больше «толщина + 30»
-        if L - t.thickness <= min(room, 30) and L - t.thickness >= MIN_EMBED:
+    for L in SCREW_LENGTHS:
+        if MIN_EMBED <= L - t.thickness <= target:
             length = L
     if length is None:
         return None
     entry = G.sub(p, G.mul(slot.n_t, t.thickness))
-    return Screw(t.id, slot.f.id, entry, G.mul(slot.n_t, -1), d, length)
+    return Screw(t.id, slot.f.id, entry, G.mul(slot.n_t, -1), _diameter(t), length)
 
 
 def _shaft(s: Screw):
@@ -632,9 +762,10 @@ def plan_screws(prj: Project, issues: list | None = None) -> dict[int, list[Scre
             slot = joint_slot(prj, c, newer)
             if slot is None:
                 a, b = prj.part(c.a), prj.part(c.b)
-                if not (a.fasten_to or b.fasten_to):
+                if not (a.fasten_to or b.fasten_to or is_seam(prj, c)):
                     note(warn("joint_glue_only", [c.a, c.b], a=c.a, b=c.b))
                 continue
+            kind = fastener_for(prj, slot)
             if slot.short < NARROW_SKIP:
                 note(warn("screw_short_joint", [c.a, c.b], a=c.a, b=c.b, w=Mm(slot.short)))
                 continue
@@ -645,13 +776,14 @@ def plan_screws(prj: Project, issues: list | None = None) -> dict[int, list[Scre
             inset = EDGE_MIN if L >= 2 * EDGE_MIN + 1 else L / 2
             usable = L - 2 * inset
             if slot.t.removable or slot.f.removable:
-                n = 2 if usable >= 40 else 1
+                n = 2 if usable >= 20 else 1
             else:
-                n = 1 if usable < 40 else max(2, round(usable / 120) + 1)
+                n = 1 if usable < 20 else max(2, round(usable / 120) + 1)
             base = [(slot.lo + slot.hi) / 2] if n == 1 else \
                 [slot.lo + inset + k * usable / (n - 1) for k in range(n)]
 
             got = 0
+            failures = []
             for s0 in base:
                 done = False
                 reason = None
@@ -662,7 +794,7 @@ def plan_screws(prj: Project, issues: list | None = None) -> dict[int, list[Scre
                     at = _screw_at(slot, s)
                     if not at:
                         continue
-                    scr = _make_screw(slot, *at)
+                    scr = _make_screw(slot, *at, kind=kind)
                     if scr is None:
                         reason = reason or ("deep", at[1])
                         continue
@@ -670,28 +802,28 @@ def plan_screws(prj: Project, issues: list | None = None) -> dict[int, list[Scre
                     clash = next((o for o in accepted + cur
                                   if G.seg_seg_distance(a0, a1, *_shaft(o)) < (scr.d + o.d) / 2 + CLEAR), None)
                     if clash:
-                        reason = ("clash", clash)
+                        reason = reason or ("clash", clash)
                         continue
                     hole = next((h for h in holes
                                  if G.seg_seg_distance(a0, a1, h[2], h[3]) < h[4] + scr.d / 2 + 2), None)
                     if hole:
-                        reason = ("hole", hole)
+                        reason = reason or ("hole", hole)
                         continue
                     cur.append(scr)
                     got += 1
                     done = True
                     break
                 if not done and reason:
-                    kind = reason[0]
-                    if kind == "deep":
-                        note(warn("screw_too_long", [slot.f.id], a=c.a, b=c.b, part=slot.f.id,
-                                  t=Mm(max(reason[1], 0))))
-                    elif kind == "clash":
-                        o = reason[1]
-                        note(warn("screw_clash", [slot.f.id], a=c.a, b=c.b, part=slot.f.id,
-                                  c=o.through, d=o.into))
-                    else:
-                        note(warn("screw_in_hole", [reason[1][0]], a=c.a, b=c.b, hole=reason[1][1]))
+                    failures.append(reason)
+            # молчим, если длинный стык потерял один из многих; шумим, если узел ослаб заметно
+            if failures and (got == 0 or len(base) <= 2):
+                why, obj = failures[0]
+                if why == "deep":
+                    note(warn("screw_too_long", [slot.f.id], a=c.a, b=c.b, part=slot.f.id, t=Mm(max(obj, 0))))
+                elif why == "clash":
+                    note(warn("screw_clash", [slot.f.id], a=c.a, b=c.b, part=slot.f.id, c=obj.through, d=obj.into))
+                else:
+                    note(warn("screw_in_hole", [obj[0]], a=c.a, b=c.b, hole=obj[1]))
         per_step[si] = cur
         accepted += cur
         placed |= new
@@ -712,21 +844,50 @@ def _hole_check(p: Part, out: list):
     prof = p.profile("-t")
     if len(prof) < 3:
         return
+    area = sum(prof[i][0] * prof[(i + 1) % len(prof)][1] - prof[(i + 1) % len(prof)][0] * prof[i][1]
+               for i in range(len(prof)))
+    sgn = 1 if area > 0 else -1
     for h in p.holes:
-        r = h.d / 2
-        u, v = h.at
+        pts = [(h.at[0] + du, h.at[1] + dv) for du, dv in h.outline(32)]
         dmin = math.inf
-        signs = []
-        for i in range(len(prof)):
-            (x0, y0), (x1, y1) = prof[i], prof[(i + 1) % len(prof)]
-            ex, ey = x1 - x0, y1 - y0
-            dmin = min(dmin, abs((u - x0) * ey - (v - y0) * ex) / math.hypot(ex, ey))
-            signs.append(ex * (v - y0) - ey * (u - x0))
-        inside = all(x >= 0 for x in signs) or all(x <= 0 for x in signs)
-        if not inside or dmin < r:
-            out.append(err("hole_outside", [p.id], part=p.id, d=Mm(h.d)))
-        elif dmin - r < 10:
-            out.append(warn("hole_near_edge", [p.id], part=p.id, d=Mm(h.d), m=Mm(10)))
+        for (u, v) in pts:
+            for i in range(len(prof)):
+                (x0, y0), (x1, y1) = prof[i], prof[(i + 1) % len(prof)]
+                ex, ey = x1 - x0, y1 - y0
+                dmin = min(dmin, sgn * (ex * (v - y0) - ey * (u - x0)) / math.hypot(ex, ey))
+        if dmin < 0:
+            out.append(err("hole_outside", [p.id], part=p.id, name=h.name))
+        elif dmin < 10:
+            out.append(warn("hole_near_edge", [p.id], part=p.id, name=h.name, m=Mm(10)))
+    for i, a in enumerate(p.holes):
+        for b in p.holes[i + 1:]:
+            if math.hypot(a.at[0] - b.at[0], a.at[1] - b.at[1]) < a.radius + b.radius + 3 and \
+                    _outlines_close(a, b):
+                out.append(warn("hole_overlap", [p.id], part=p.id, name=a.name, other=b.name))
+
+
+def _outlines_close(a: Hole, b: Hole) -> bool:
+    pa = [(a.at[0] + u, a.at[1] + v) for u, v in a.outline(32)]
+    pb = [(b.at[0] + u, b.at[1] + v) for u, v in b.outline(32)]
+    return min(math.hypot(x0 - x1, y0 - y1) for x0, y0 in pa for x1, y1 in pb) < 3
+
+
+def _hole_blocked(prj: Project, contacts, out: list):
+    """Сквозное отверстие, которое с другой стороны закрыла соседняя деталь (дренаж над ножкой)."""
+    for c in contacts:
+        for pid, tag in ((c.a, c.tag_a), (c.b, c.tag_b)):
+            if tag not in ("+t", "-t"):
+                continue
+            p = prj.part(pid)
+            other = c.b if pid == c.a else c.a
+            a, b = p.face_axes
+            for h in p.holes:
+                q = [0.0, 0.0, 0.0]
+                q[a], q[b] = h.at
+                q[p.thick_axis] = p.size[p.thick_axis] if tag == "+t" else 0.0
+                w = p.to_world(tuple(q))
+                if G.point_in_convex(c.pts, w, c.n):
+                    out.append(warn("hole_blocked", [pid, other], part=pid, name=h.name, other=other))
 
 
 def validate(prj: Project) -> list[Issue]:
@@ -734,6 +895,7 @@ def validate(prj: Project) -> list[Issue]:
     if any(i.level == "error" for i in out):
         return out
     ids = [p.id for p in prj.parts]
+    gaps_ok = {frozenset(pair) for pair in prj.gaps_ok}
     dups = sorted({x for x in ids if ids.count(x) > 1})
     if dups:
         out.append(err("dup_ids", dups, ids=dups))
@@ -762,7 +924,7 @@ def validate(prj: Project) -> list[Issue]:
             sep = G.separation(ps[i].poly, ps[j].poly)
             if sep < -CONTACT_TOL:
                 out.append(err("overlap", [ps[i].id, ps[j].id], a=ps[i].id, b=ps[j].id, depth=Mm(-sep)))
-            elif CONTACT_TOL < sep < GAP_WARN:
+            elif CONTACT_TOL < sep < GAP_WARN and frozenset((ps[i].id, ps[j].id)) not in gaps_ok:
                 out.append(warn("gap", [ps[i].id, ps[j].id], a=ps[i].id, b=ps[j].id, gap=Mm(sep)))
 
     contacts = all_contacts(prj)
@@ -793,6 +955,7 @@ def validate(prj: Project) -> list[Issue]:
             if pid not in ids:
                 out.append(err("step_unknown_part", [pid], step=s.title, part=pid))
 
+    _hole_blocked(prj, contacts, out)
     touching = {frozenset((c.a, c.b)) for c in contacts}
     for p in ps:
         for sn in p.raw_snaps:

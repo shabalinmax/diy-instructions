@@ -207,3 +207,66 @@ def test_screws_not_closer_than_edge_min():
     for s in _all(prj):
         y = s.point[1]
         assert EDGE_MIN - 1e-6 <= y <= 140 - EDGE_MIN + 1e-6
+
+
+# ---------- правки по прогону ----------
+
+def test_boards_side_by_side_are_a_seam_not_a_problem():
+    # сиденье из двух досок на двух ножках: доски касаются длинными кромками
+    parts = [box("leg_l", (0, 0, 0), (20, 300, 400)), box("leg_r", (780, 0, 0), (20, 300, 400)),
+             box("seat_a", (0, 0, 400), (800, 150, 20)), box("seat_b", (0, 150, 400), (800, 150, 20))]
+    issues = validate(load_dict(model(parts)))
+    assert "joint_glue_only" not in codes(issues)
+
+
+def test_thick_stock_gets_longer_screws():
+    m = model([box("floor", (40, 0, 0), (200, 140, 40)), box("side", (0, 0, 0), (40, 140, 300))],
+              steps=[{"title": "1", "add": ["floor", "side"]}])
+    m["stock"][0]["thickness"] = 40
+    screws = [s for v in plan_screws(load_dict(m)).values() for s in v]
+    assert screws and all(s.length >= 90 for s in screws)   # ≈ 2,5 × 40
+
+
+def test_chipboard_edge_gets_confirmat():
+    m = model([box("bottom", (16, 0, 0), (568, 300, 16)), box("side", (0, 0, 0), (16, 300, 500))],
+              steps=[{"title": "1", "add": ["bottom", "side"]}])
+    m["stock"] = [{"id": "b20", "kind": "sheet", "name": "ЛДСП белая", "thickness": 16, "width": 1830, "length": 2750}]
+    screws = [s for v in plan_screws(load_dict(m)).values() for s in v]
+    assert screws and {s.kind for s in screws} == {"confirmat"} and screws[0].d == 7
+
+
+def test_hole_shapes_and_repeat():
+    p = box("floor", (0, 0, 0), (600, 200, 20), holes=[
+        {"d": 10, "at": [100, 100], "repeat": {"n": 5, "step": [100, 0]}, "name": "Дренаж"},
+    ])
+    prj = load_dict(model([p]))
+    assert len(prj.part("floor").holes) == 5
+    door = box("front", (0, 0, 0), (400, 20, 400), holes=[{"shape": "arch", "w": 200, "h": 250, "at": [200, 140]}])
+    assert "hole_outside" not in codes(validate(load_dict(model([door]))))
+    bad = box("front", (0, 0, 0), (400, 20, 400), holes=[{"shape": "rect", "w": 200, "h": 380, "at": [200, 150]}])
+    assert "hole_outside" in codes(validate(load_dict(model([bad]))), "error")
+
+
+def test_hole_overlap_warns():
+    p = box("a", (0, 0, 0), (400, 20, 300), holes=[{"d": 50, "at": [100, 150]}, {"d": 50, "at": [140, 150]}])
+    assert "hole_overlap" in codes(validate(load_dict(model([p]))))
+
+
+def test_hole_blocked_by_neighbour():
+    floor = box("floor", (0, 0, 40), (600, 200, 20), holes=[{"d": 10, "at": [60, 100], "name": "Дренаж"}])
+    feet = [box("foot_a", (40, 0, 20), (40, 200, 20)), box("foot_b", (520, 0, 20), (40, 200, 20))]
+    issues = validate(load_dict(model([floor] + feet)))
+    assert "hole_blocked" in codes(issues)
+
+
+def test_gaps_ok_suppresses_gap_warning():
+    parts = [box("a", (0, 0, 0), (100, 20, 300)), box("b", (0, 20, 0), (20, 100, 300)),
+             box("c", (102, 0, 0), (100, 20, 300)), box("d", (100, 20, 0), (102, 100, 20))]
+    assert "gap" not in codes(validate(load_dict(model(parts, gaps_ok=[["a", "c"]]))))
+
+
+def test_hardware_markers_load():
+    p = box("board", (0, 0, 0), (600, 20, 140),
+            hardware=[{"name": "Крючок", "at": [100, 70], "repeat": {"n": 4, "step": [130, 0]}}])
+    prj = load_dict(model([p]))
+    assert [h.name for h in prj.part("board").hardware] == ["Крючок"] * 4

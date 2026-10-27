@@ -26,7 +26,7 @@ def _summary(prj, fmt: Fmt) -> dict:
         "parts": len(prj.parts),
         "steps": len(prj.steps),
         "stock": [{"name": name, "count": n} for name, n in cutlist.shopping(prj, uses, fmt)],
-        "screws": [{"spec": fmt.screw(*k), "diameter_mm": k[0], "length_mm": k[1], "count": n}
+        "screws": [{"kind": k[0], "spec": fmt.screw(*k), "diameter_mm": k[1], "length_mm": k[2], "count": n}
                    for k, n in sorted(screws.items())],
     }
 
@@ -66,7 +66,7 @@ def main(argv=None) -> int:
             for s in summary["stock"]:
                 print(f"  {s['name']} — {s['count']} {fmt.t('pcs')}")
             for s in summary["screws"]:
-                print(f"  {fmt.t('screw')} {s['spec']} — {s['count']} {fmt.t('pcs')}")
+                print(f"  {fmt.t(s['kind'])} {s['spec']} — {s['count']} {fmt.t('pcs')}")
 
     if a.cmd in ("build", "preview"):
         if errors and not a.force:
