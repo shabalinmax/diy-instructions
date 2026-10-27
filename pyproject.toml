@@ -17,6 +17,10 @@ classifiers = [
   "Topic :: Multimedia :: Graphics",
 ]
 
+[project.urls]
+Homepage = "https://github.com/shabalinmax/diy-instructions"
+Issues = "https://github.com/shabalinmax/diy-instructions/issues"
+
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 

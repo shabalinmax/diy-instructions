@@ -4,7 +4,7 @@
 
 **Describe a woodworking project in plain words, get a flat-pack-style assembly manual that actually adds up.**
 
-[![CI](https://github.com/__REPO__/actions/workflows/ci.yml/badge.svg)](https://github.com/__REPO__/actions/workflows/ci.yml)
+[![CI](https://github.com/shabalinmax/diy-instructions/actions/workflows/ci.yml/badge.svg)](https://github.com/shabalinmax/diy-instructions/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Claude skill](https://img.shields.io/badge/Claude-skill-D97757)
@@ -75,7 +75,7 @@ flowchart LR
 ## Quick start
 
 ```bash
-git clone https://github.com/__REPO__.git
+git clone https://github.com/shabalinmax/diy-instructions.git
 cd diy-instructions
 pip install -e .
 
