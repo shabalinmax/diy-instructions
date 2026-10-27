@@ -127,6 +127,8 @@ class Part:
     holes: list[Hole] = field(default_factory=list)
     hardware: list[Hardware] = field(default_factory=list)
     removable: bool = False
+    load_kg: float | None = None   # расчётная нагрузка на деталь
+    load_type: str = "uniform"     # uniform (книги, обувь) | point (сели, встали)
     fasten_to: list[str] = field(default_factory=list)
     note: str = ""
     letter: str = ""
@@ -331,6 +333,7 @@ def _build_part(p: dict, errors: list) -> Part:
         hardware=[Hardware(x["name"], tuple(at), x.get("side", "+t"))
                   for x in p.get("hardware", []) for at in _repeat(x)],
         removable=p.get("removable", False), fasten_to=p.get("fasten_to", []), note=p.get("note", ""),
+        load_kg=p.get("load_kg"), load_type=p.get("load_type", "uniform"),
     )
     local = _box(size, part.thick_axis)
     a, b = part.face_axes
@@ -454,6 +457,8 @@ def _check_raw(raw: dict) -> list:
     for i, p in enumerate(raw.get("parts", [])):
         where = p.get("id", f"parts[{i}]")
         need(p, ("id", "name", "stock", "size"), where)
+        if p.get("load_type", "uniform") not in ("uniform", "point"):
+            out.append(err("bad_value", [where], where=where, field="load_type", value=p.get("load_type")))
         if "size" in p and (len(p["size"]) != 3 or min(p["size"]) <= 0):
             out.append(err("bad_value", [where], where=where, field="size", value=p["size"]))
         for j, h in enumerate(p.get("holes", [])):
@@ -963,6 +968,9 @@ def validate(prj: Project) -> list[Issue]:
                 out.append(warn("snap_edge_only", [p.id], part=p.id, targets=sn["to"]))
 
     if not any(i.level == "error" for i in out):
+        _structure_check(prj, contacts, out)
+
+    if not any(i.level == "error" for i in out):
         per_step = plan_screws(prj, out)
         placed: set[str] = set()
         for si, s in enumerate(prj.steps):
@@ -970,6 +978,37 @@ def validate(prj: Project) -> list[Issue]:
                 out.append(warn("step_no_fastener", s.add, step=s.title))
             placed |= set(s.add)
     return out
+
+
+def structure_report(prj: Project, contacts=None):
+    from . import structure as S
+    contacts = contacts if contacts is not None else all_contacts(prj)
+    sags = [x for p in prj.parts if (x := S.shelf_sag(prj, p, contacts))]
+    stab = None if "wall_mount" in prj.safety else S.stability(prj, sags)
+    return sags, stab
+
+
+def _structure_check(prj: Project, contacts, out: list):
+    from . import structure as S
+    sags, stab = structure_report(prj, contacts)
+    if "load_bearing" in prj.safety and sags and all(prj.part(x.part).load_kg is None for x in sags):
+        out.append(warn("load_unspecified", [x.part for x in sags], kgm=round(S.DEFAULT_SHELF_KG_PER_M)))
+    for x in sags:
+        p = prj.part(x.part)
+        params = dict(part=x.part, kg=round(x.load_kg), sag=Mm(x.sag), span=Mm(x.span),
+                      lim=Mm(x.limit_warn))
+        if x.level == "bad":
+            out.append((err if p.load_kg is not None else warn)("sag_bad", [x.part], **params))
+        elif x.level == "warn":
+            out.append(warn("sag_warn", [x.part], **params))
+    if stab is None:
+        return
+    if stab.margin < 0:
+        out.append(err("unstable", []))
+    elif stab.height > 400 and stab.tip_deg < S.TIP_WARN_DEG:
+        out.append(warn("tip_over", [], deg=round(stab.tip_deg, 1)))
+    if stab.height > S.ANCHOR_HEIGHT and "children" in prj.safety:
+        out.append(warn("anchor_children", [], h=Mm(stab.height)))
 
 
 def errors_of(issues):

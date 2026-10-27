@@ -270,3 +270,44 @@ def test_hardware_markers_load():
             hardware=[{"name": "Крючок", "at": [100, 70], "repeat": {"n": 4, "step": [130, 0]}}])
     prj = load_dict(model([p]))
     assert [h.name for h in prj.part("board").hardware] == ["Крючок"] * 4
+
+
+# ---------- прочность ----------
+
+def test_sag_matches_beam_formula():
+    from diyplan.structure import MATERIALS, shelf_sag
+    from diyplan.model import all_contacts
+    parts = [box("l", (0, 0, 0), (20, 200, 300)), box("r", (820, 0, 0), (20, 200, 300)),
+             box("shelf", (20, 0, 280), (800, 200, 20), load_kg=20)]
+    prj = load_dict(model(parts, safety=["load_bearing"]))
+    x = shelf_sag(prj, prj.part("shelf"), all_contacts(prj))
+    E, rho, creep = MATERIALS["pine"]
+    I = 200 * 20 ** 3 / 12
+    w = 20 * 9.81 / x.span
+    expect_load = 5 * w * x.span ** 4 / (384 * E * 1000 * I) * creep
+    assert x.span == pytest.approx(800, abs=1)        # между площадками опоры
+    assert x.sag > expect_load                        # плюс собственный вес
+    assert x.sag == pytest.approx(expect_load, rel=0.1)
+
+
+def test_explicit_heavy_load_is_error():
+    parts = [box("l", (0, 0, 0), (20, 200, 300)), box("r", (1220, 0, 0), (20, 200, 300)),
+             box("shelf", (20, 0, 280), (1200, 200, 20), load_kg=60)]
+    issues = validate(load_dict(model(parts, safety=["load_bearing"])))
+    assert "sag_bad" in codes(issues, "error")
+
+
+def test_load_unspecified_warns():
+    parts = [box("l", (0, 0, 0), (20, 200, 300)), box("r", (420, 0, 0), (20, 200, 300)),
+             box("seat", (20, 0, 280), (400, 200, 20))]
+    assert "load_unspecified" in codes(validate(load_dict(model(parts, safety=["load_bearing"]))))
+
+
+def test_tall_narrow_tips_over():
+    # стойка 1800×200: центр масс высоко, основание узкое
+    parts = [box("l", (0, 0, 0), (20, 150, 1800)), box("r", (580, 0, 0), (20, 150, 1800)),
+             box("top", (20, 0, 1780), (560, 150, 20)), box("bottom", (20, 0, 0), (560, 150, 20))]
+    issues = validate(load_dict(model(parts)))
+    assert "tip_over" in codes(issues)
+    issues = validate(load_dict(model(parts, safety=["wall_mount"])))
+    assert "tip_over" not in codes(issues)

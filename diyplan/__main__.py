@@ -16,13 +16,19 @@ from collections import Counter
 
 from . import __version__, cutlist
 from .i18n import Fmt
-from .model import errors_of, load, plan_screws, validate
+from .model import errors_of, load, plan_screws, structure_report, validate
 
 
 def _summary(prj, fmt: Fmt) -> dict:
     screws = Counter(s.key for v in plan_screws(prj).values() for s in v)
     uses = cutlist.plan(prj)
+    sags, stab = structure_report(prj)
     return {
+        "loads": [{"part": x.part, "load_kg": round(x.load_kg, 1), "type": "point" if x.point else "uniform",
+                   "span_mm": round(x.span), "sag_mm": round(x.sag, 1), "sag_limit_mm": round(x.limit_warn, 1),
+                   "level": x.level} for x in sags],
+        "stability": None if not stab else {"height_mm": round(stab.height), "tip_angle_deg": round(stab.tip_deg, 1),
+                                            "com_mm": [round(v) for v in stab.com]},
         "parts": len(prj.parts),
         "steps": len(prj.steps),
         "stock": [{"name": name, "count": n} for name, n in cutlist.shopping(prj, uses, fmt)],

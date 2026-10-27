@@ -465,6 +465,34 @@ def _bullets(d: Doc, title, items, mark="!", fill="#D9381E"):
         d.y = para(c, M + 30, d.y, t, W - 2 * M - 30, 10.5) - 10
 
 
+def loads_block(d: Doc):
+    from .model import structure_report
+    from .structure import DEFAULT_SHELF_KG_PER_M
+    c, f, prj = d.c, d.fmt, d.prj
+    sags, stab = structure_report(prj)
+    if not sags and not (stab and "load_bearing" in prj.safety):
+        return
+    d.need(60)
+    d.y -= 6
+    text(c, M, d.y - 12, f.t("loads_title"), 13, bold=True)
+    d.y -= 26
+    lines = []
+    for x in sags:
+        p = prj.part(x.part)
+        lines.append(f.t("load_line", name=p.name, letter=p.letter, kg=round(x.load_kg),
+                         how=f.t("load_point" if x.point else "load_uniform"), sag=f.len(x.sag), span=f.len(x.span)))
+    lines = list(dict.fromkeys(lines))  # одинаковые детали — одной строкой
+    if any(prj.part(x.part).load_kg is None for x in sags):
+        lines.append(f.t("load_default_note", kgm=round(DEFAULT_SHELF_KG_PER_M)))
+    if stab and stab.margin >= 0:
+        lines.append(f.t("stability_line", deg=round(stab.tip_deg)))
+    for line in lines:
+        h = len(wrap("• " + line, W - 2 * M, 9.5)) * 9.5 * 1.35
+        d.need(h, f.t("loads_title"))
+        d.y = para(c, M, d.y, "• " + line, W - 2 * M, 9.5)
+    d.y -= 6
+
+
 def tips_section(d: Doc):
     """«Важно» из модели + блок безопасности (общий и по флагам safety) + дисклеймер."""
     c, f, prj = d.c, d.fmt, d.prj
@@ -479,6 +507,7 @@ def tips_section(d: Doc):
     d.y -= 10
     items = [f.t("safety_" + flag) for flag in prj.safety] + [f.t("safety_general")]
     _bullets(d, f.t("safety_title"), items, mark="▲", fill="#1E1E1E")
+    loads_block(d)
     disc = (prj.disclaimer + "\n\n" if prj.disclaimer else "") + f.t("disclaimer")
     h = len(wrap(disc, W - 2 * M - 20, 8.5)) * 8.5 * 1.4 + 20
     d.need(h + 10)
