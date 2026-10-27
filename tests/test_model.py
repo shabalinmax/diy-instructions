@@ -311,3 +311,44 @@ def test_tall_narrow_tips_over():
     assert "tip_over" in codes(issues)
     issues = validate(load_dict(model(parts, safety=["wall_mount"])))
     assert "tip_over" not in codes(issues)
+
+
+# ---------- узлы и повторы ----------
+
+def _cat_like(steps):
+    parts = [box("floor", (20, 20, 0), (300, 300, 20)),
+             box("side_l", (0, 20, 0), (20, 300, 300)), box("side_r", (320, 20, 0), (20, 300, 300)),
+             box("front", (0, 0, 0), (340, 20, 300)), box("back", (0, 320, 0), (340, 20, 300)),
+             box("lid", (0, 0, 300), (340, 340, 20)),
+             box("rim_l", (0, 0, 320), (20, 340, 60)), box("rim_r", (320, 0, 320), (20, 340, 60))]
+    m = model(parts, steps=steps)
+    m["stock"][0]["width"] = 400
+    return load_dict(m)
+
+
+def test_subassembly_screws_split_between_group_and_attach():
+    from diyplan.model import step_scenes
+    steps = [{"title": "box", "add": ["floor", "side_l", "side_r", "front", "back"]},
+             {"title": "bed", "group": "bed", "add": ["lid", "rim_l", "rim_r"]},
+             {"title": "attach", "attach": "bed"}]
+    prj = _cat_like(steps)
+    assert errors_of(validate(prj)) == []
+    sc = step_scenes(prj)
+    assert sc[1] == ([], ["lid", "rim_l", "rim_r"], "group")
+    assert sc[2][2] == "attach" and set(sc[2][1]) == {"lid", "rim_l", "rim_r"}
+    per = plan_screws(prj)
+    bed_ids = {"lid", "rim_l", "rim_r"}
+    assert all({s.through, s.into} <= bed_ids for s in per[1])           # в узле — только внутри узла
+    assert per[2] and all(len({s.through, s.into} & bed_ids) == 1 for s in per[2])  # при установке — узел к коробу
+
+
+def test_attach_unknown_group_is_error():
+    steps = [{"title": "all", "add": ["floor", "side_l", "side_r", "front", "back", "lid", "rim_l", "rim_r"]},
+             {"title": "attach", "attach": "nope"}]
+    assert "attach_unknown" in codes(validate(_cat_like(steps)), "error")
+
+
+def test_group_not_attached_warns():
+    steps = [{"title": "box", "add": ["floor", "side_l", "side_r", "front", "back"]},
+             {"title": "bed", "group": "bed", "add": ["lid", "rim_l", "rim_r"]}]
+    assert "group_not_attached" in codes(validate(_cat_like(steps)))

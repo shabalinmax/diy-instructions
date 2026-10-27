@@ -542,12 +542,13 @@ def G_mat_vec(R, v):
     return mat_vec(R, v)
 
 
-def step_dims(prj: Project, st, placed_before, fmt: Fmt, limit=3):
+def step_dims(prj: Project, st, scene, fmt: Fmt, limit=3):
     """Размеры положения для шага: новые детали — относительно уже стоящих
     и относительно добавленных раньше в этом же шаге. Одинаковые подписи — один раз."""
+    old_ids, new_ids, mode = scene
     out, seen = [], set()
-    for i, pid in enumerate(st.add):
-        refs = list(placed_before) + st.add[:i]
+    for i, pid in enumerate(new_ids):
+        refs = list(old_ids) + ([] if mode == "attach" else new_ids[:i])
         for dm in position_dims(prj, [pid], refs, st.view, fmt, limit=limit):
             if dm[4] not in seen and len(out) < limit:
                 seen.add(dm[4])
@@ -555,10 +556,17 @@ def step_dims(prj: Project, st, placed_before, fmt: Fmt, limit=3):
     return out
 
 
-def _step_side(c, d: Doc, si, rx, ry, colw, cur, shown, draw=True, dims=()):
+def _step_side(c, d: Doc, si, rx, ry, colw, cur, shown, draw=True, dims=(), scene=None):
     """Правая колонка шага. Возвращает y под последней строкой."""
     prj, f = d.prj, d.fmt
     st = prj.steps[si]
+    notes = []
+    if st.group:
+        notes.append(f.t("subassembly"))
+    if st.same_as:
+        notes.append(f.t("same_as", n=st.same_as))
+    for note in notes:
+        ry = para(c, rx, ry + 4, note, colw, 8.5, color=MUTED, bold=True, draw=draw) - 6
     if st.add:
         letters = Counter(prj.part(pid).letter for pid in st.add)
         for L, n in sorted(letters.items(), key=lambda kv: (len(kv[0]), kv[0])):
@@ -591,20 +599,30 @@ def _step_side(c, d: Doc, si, rx, ry, colw, cur, shown, draw=True, dims=()):
     return para(c, rx, ry - 6, st.text, colw, 9.2, draw=draw)
 
 
-def step_block(d: Doc, si: int, box, screws_by_step, placed_before: list[str]):
+def step_block(d: Doc, si: int, box, screws_by_step, scene):
     c, prj = d.c, d.prj
     st = prj.steps[si]
+    old_ids, new_ids, mode = scene
     x, y, w, h = box
     iso.label(c, x + 16, y + h - 18, str(si + 1), r=16, size=16 if si < 9 else 13)
-    text(c, x + 40, y + h - 23, fit_text(c, st.title, w - 50, 14, True), 14, bold=True)
+    title_w = w - 50
+    if st.times > 1:
+        badge = d.fmt.t("times", n=st.times)
+        bw = c.stringWidth(badge, "DejaVu-Bold", 13) + 12
+        c.setFillColor(YEL); c.roundRect(x + w - bw, y + h - 28, bw, 18, 9, fill=1, stroke=0)
+        text(c, x + w - bw / 2, y + h - 23, badge, 13, bold=True, align="center")
+        title_w -= bw + 8
+    text(c, x + 40, y + h - 23, fit_text(c, st.title, title_w, 14, True), 14, bold=True)
 
     cur = screws_by_step.get(si, [])
-    old = [s for k, v in screws_by_step.items() if k < si for s in v]
+    scene_ids = set(old_ids) | set(new_ids)
+    old = [s for k, v in screws_by_step.items() if k < si for s in v
+           if s.through in scene_ids and s.into in scene_ids]
     img_box = (x, y + 26, w * 0.62, h - 56)
-    dims = step_dims(prj, st, placed_before, d.fmt)
-    if st.add:
-        styles = {pid: "old" for pid in placed_before}
-        styles.update({pid: "new" for pid in st.add})
+    dims = step_dims(prj, st, scene, d.fmt)
+    if new_ids:
+        styles = {pid: "old" for pid in old_ids}
+        styles.update({pid: "new" for pid in new_ids})
         ref = [prj.part(pid) for pid in styles]
         zoom = zoom_screws(d, si, cur, st.view)
         R = min(52.0, img_box[2] * 0.2, img_box[3] * 0.28)
@@ -623,7 +641,7 @@ def step_block(d: Doc, si: int, box, screws_by_step, placed_before: list[str]):
         shown = focus_drawing(d, st.focus, img_box)
     else:
         shown = 0
-    _step_side(c, d, si, x + w * 0.64, y + h - 60, w * 0.36, cur, shown, dims=dims)
+    _step_side(c, d, si, x + w * 0.64, y + h - 60, w * 0.36, cur, shown, dims=dims, scene=scene)
     c.setStrokeColor(LINE); c.setLineWidth(0.6)
     c.line(x, y + 20, x + w, y + 20)
 
@@ -633,21 +651,21 @@ def steps_section(d: Doc, screws_by_step):
     d.new_page()
     full = TOP - BOTTOM
     half = full / 2
-    placed: list[str] = []
+    from .model import step_scenes
+    scenes = step_scenes(prj)
     slot = 0
     for si, st in enumerate(prj.steps):
         cur = screws_by_step.get(si, [])
         # сколько места просит правая колонка
-        dims = step_dims(prj, st, placed, d.fmt)
+        dims = step_dims(prj, st, scenes[si], d.fmt)
         need = TOP - _step_side(c, d, si, 0, TOP - 60, (W - 2 * M) * 0.36, cur, len(cur), draw=False,
-                                dims=dims) + 30
+                                dims=dims, scene=scenes[si]) + 30
         tall = need > half
         if tall and slot == 1:
             d.new_page(); slot = 0
         h = full if tall else half
         box = (M, TOP - slot * half - h, W - 2 * M, h)
-        step_block(d, si, box, screws_by_step, list(placed))
-        placed += [p for p in st.add if p not in placed]
+        step_block(d, si, box, screws_by_step, scenes[si])
         slot += 2 if tall else 1
         if slot >= 2 and si < len(prj.steps) - 1:
             d.new_page(); slot = 0

@@ -255,6 +255,10 @@ class Step:
     text: str = ""
     glue: bool = False
     view: str = "front-right"
+    group: str | None = None      # шаг собирает отдельный узел (лежанку, раму) на столе
+    attach: str | None = None     # шаг ставит собранный узел на основную сборку
+    times: int = 1                # «сделайте N таких»
+    same_as: int | None = None    # номер шага-образца (1-based): «так же, как в шаге N»
 
 
 @dataclass
@@ -526,7 +530,8 @@ def load_dict(raw: dict) -> Project:
                             float(s["length"])) for s in raw["stock"]}
     parts = [_build_part(p, errors) for p in raw["parts"]]
     steps = [Step(s["title"], s.get("add", []), s.get("focus", []), s.get("text", ""), s.get("glue", False),
-                  s.get("view", "front-right")) for s in raw["steps"]]
+                  s.get("view", "front-right"), s.get("group"), s.get("attach"), int(s.get("times", 1)),
+                  s.get("same_as")) for s in raw["steps"]]
     prj = Project(
         title=raw["title"], subtitle=raw.get("subtitle", ""),
         difficulty=raw.get("difficulty", ""), time=raw.get("time", ""),
@@ -744,6 +749,27 @@ def _hole_axes(prj: Project):
     return out
 
 
+def step_scenes(prj: Project):
+    """Для каждого шага: (что уже собрано в этой сборке, что добавляем, вид шага).
+    Узлы (group) собираются отдельно и попадают в основную сборку шагом attach."""
+    main: list[str] = []
+    groups: dict[str, list[str]] = {}
+    out = []
+    for st in prj.steps:
+        if st.attach:
+            g = groups.get(st.attach, [])
+            out.append((list(main), list(g), "attach"))
+            main += g
+        elif st.group:
+            g = groups.setdefault(st.group, [])
+            out.append((list(g), list(st.add), "group"))
+            g += st.add
+        else:
+            out.append((list(main), list(st.add), "main"))
+            main += st.add
+    return out
+
+
 def plan_screws(prj: Project, issues: list | None = None) -> dict[int, list[Screw]]:
     """Расставить саморезы по шагам: ряд по каждой площадке стыка, с отступами от краёв,
     без встреч с уже стоящими саморезами и отверстиями, без выхода насквозь."""
@@ -751,17 +777,19 @@ def plan_screws(prj: Project, issues: list | None = None) -> dict[int, list[Scre
         if issues is not None:
             issues.append(i)
 
-    placed: set[str] = set()
     per_step: dict[int, list[Screw]] = {}
     contacts = all_contacts(prj)
     holes = _hole_axes(prj)
     accepted: list[Screw] = []
-    for si, st in enumerate(prj.steps):
-        new = set(st.add)
+    for si, (old_ids, new_ids, mode) in enumerate(step_scenes(prj)):
+        new, old = set(new_ids), set(old_ids)
         cur: list[Screw] = []
         for c in contacts:
             ids = {c.a, c.b}
-            if not (ids & new and ids <= (placed | new)):
+            if mode == "attach":
+                if not (len(ids & new) == 1 and len(ids & old) == 1):
+                    continue  # внутри узла всё прикручено на его шагах
+            elif not (ids & new and ids <= (old | new)):
                 continue
             newer = next(iter(ids & new)) if len(ids & new) == 1 else None
             slot = joint_slot(prj, c, newer)
@@ -831,7 +859,6 @@ def plan_screws(prj: Project, issues: list | None = None) -> dict[int, list[Scre
                     note(warn("screw_in_hole", [obj[0]], a=c.a, b=c.b, hole=obj[1]))
         per_step[si] = cur
         accepted += cur
-        placed |= new
     if issues is not None:  # одинаковые предупреждения — один раз
         seen, uniq = set(), []
         for i in issues:
@@ -959,6 +986,16 @@ def validate(prj: Project) -> list[Issue]:
         for pid in s.add + s.focus:
             if pid not in ids:
                 out.append(err("step_unknown_part", [pid], step=s.title, part=pid))
+    groups = {s.group for s in prj.steps if s.group}
+    attached = [s.attach for s in prj.steps if s.attach]
+    for gname in attached:
+        if gname not in groups:
+            out.append(err("attach_unknown", [], step=gname, group=gname))
+    for gname in groups - set(attached):
+        out.append(warn("group_not_attached", [], group=gname))
+    for i, s in enumerate(prj.steps):
+        if s.same_as is not None and not (1 <= int(s.same_as) <= len(prj.steps)):
+            out.append(err("bad_value", [], where=f"steps[{i}]", field="same_as", value=s.same_as))
 
     _hole_blocked(prj, contacts, out)
     touching = {frozenset((c.a, c.b)) for c in contacts}
@@ -972,11 +1009,9 @@ def validate(prj: Project) -> list[Issue]:
 
     if not any(i.level == "error" for i in out):
         per_step = plan_screws(prj, out)
-        placed: set[str] = set()
-        for si, s in enumerate(prj.steps):
-            if s.add and placed and not per_step[si]:
-                out.append(warn("step_no_fastener", s.add, step=s.title))
-            placed |= set(s.add)
+        for si, (old_ids, new_ids, mode) in enumerate(step_scenes(prj)):
+            if new_ids and old_ids and not per_step[si]:
+                out.append(warn("step_no_fastener", new_ids, step=prj.steps[si].title))
     return out
 
 
