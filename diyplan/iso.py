@@ -88,11 +88,12 @@ def draw_order(polys: list[G.Poly]) -> list[int]:
 
 
 class View:
-    def __init__(self, ref_parts, box, k=0, pad=0.06, extra=60):
+    def __init__(self, ref_parts, box, k=0, pad=0.06, extra=60, ref_points=None):
         self.k = k
         self.Rv = view_rot(k)
         x, y, w, h = box
-        pts = [proj(G.mat_vec(self.Rv, v)) for p in ref_parts for v in p.poly.verts]
+        world = ref_points if ref_points is not None else [v for p in ref_parts for v in p.poly.verts]
+        pts = [proj(G.mat_vec(self.Rv, v)) for v in world]
         bx0, by0 = min(p[0] for p in pts) - extra, min(p[1] for p in pts) - extra
         bx1, by1 = max(p[0] for p in pts) + extra, max(p[1] for p in pts) + extra
         self.s = min(w * (1 - pad) / (bx1 - bx0), h * (1 - pad) / (by1 - by0))
@@ -284,12 +285,13 @@ def _overlap_frac(a, b):
 
 
 def draw_scene(c, prj: Project, box, styles: dict[str, str], screws_cur=(), screws_old=(),
-               ref_parts=None, arrows=True, labels=True, extra=70, view="front-right", dims=()) -> int:
-    """Рисует сцену; возвращает число видимых саморезов текущего шага.
+               ref_parts=None, arrows=True, labels=True, extra=70, view="front-right", dims=(),
+               ref_points=None, ghosting=True):
+    """Рисует сцену; возвращает (число видимых саморезов текущего шага, View).
     dims — размеры положения: (a3, b3, off3, текст)."""
     k = VIEWS.get(view, 0)
     parts = [prj.part(pid) for pid in styles]
-    v = View(ref_parts or prj.parts, box, k=k, extra=extra)
+    v = View(ref_parts or prj.parts, box, k=k, extra=extra, ref_points=ref_points)
     rpolys = [p.poly.transformed(v.Rv) for p in parts]
     order = draw_order(rpolys)
 
@@ -298,7 +300,7 @@ def draw_scene(c, prj: Project, box, styles: dict[str, str], screws_cur=(), scre
     pos = {i: n for n, i in enumerate(order)}
     ghosts = set()
     for i, p in enumerate(parts):
-        if styles[p.id] != "new":
+        if styles[p.id] != "new" or not ghosting:
             continue
         for j, q in enumerate(parts):
             if styles[q.id] == "old" and pos[j] > pos[i] and _overlap_frac(boxes[i], boxes[j]) > 0.25:
@@ -343,4 +345,46 @@ def draw_scene(c, prj: Project, box, styles: dict[str, str], screws_cur=(), scre
                 continue
             pts = [v.rpt(q) for f in rp.faces if visible(f.n) for q in f.pts]
             label(c, sum(q[0] for q in pts) / len(pts), sum(q[1] for q in pts) / len(pts), p.letter)
-    return shown
+    return shown, v
+
+
+def draw_zoom(c, prj: Project, main_view: View, center, R, styles, screws, edge_label: str, spec_label: str):
+    """Выноска-лупа: крупно один узел — где входят саморезы и отступ от края.
+    center/R — место под лупу, заранее зарезервированное в рамке картинки."""
+    if not screws:
+        return
+    s0 = screws[0]
+    group = [s for s in screws if s.through == s0.through and s.into == s0.into]
+    pts = []
+    for p in [s.point for s in group[:2]]:
+        for dx in (-45, 45):
+            for dy in (-45, 45):
+                for dz in (-45, 45):
+                    pts.append(G.add(p, (dx, dy, dz)))
+    cx, cy = center
+    anchor = main_view.pt(s0.point)
+    c.setStrokeColor(ACCENT); c.setLineWidth(0.8)
+    c.circle(anchor[0], anchor[1], 8, fill=0, stroke=1)
+    ang = math.atan2(cy - anchor[1], cx - anchor[0])
+    dist = math.hypot(cx - anchor[0], cy - anchor[1])
+    if dist > R + 8:
+        c.line(anchor[0] + 8 * math.cos(ang), anchor[1] + 8 * math.sin(ang),
+               cx - R * math.cos(ang), cy - R * math.sin(ang))
+    c.saveState()
+    c.setFillColor(HexColor("#FFFFFF")); c.circle(cx, cy, R, fill=1, stroke=0)
+    path = c.beginPath(); path.circle(cx, cy, R)
+    c.clipPath(path, stroke=0, fill=0)
+    draw_scene(c, prj, (cx - R, cy - R, 2 * R, 2 * R), dict(styles), group, (), arrows=False, labels=False,
+               ref_points=pts, extra=0, view=_view_name(main_view.k), ghosting=False)
+    c.restoreState()
+    c.setStrokeColor(ACCENT); c.setLineWidth(1.2)
+    c.circle(cx, cy, R, fill=0, stroke=1)
+    c.setFillColor(ACCENT)
+    c.setFont("DejaVu-Bold", 7)
+    c.drawCentredString(cx, cy - R - 9, spec_label)
+    c.setFont("DejaVu", 7)
+    c.drawCentredString(cx, cy - R - 18, edge_label)
+
+
+def _view_name(k):
+    return next(n for n, i in VIEWS.items() if i == k)

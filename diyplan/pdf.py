@@ -519,6 +519,29 @@ def position_dims(prj: Project, new_ids, placed_ids, view: str, fmt: Fmt, limit=
     return out
 
 
+def zoom_screws(d: Doc, si: int, cur, view_name: str, commit=True) -> list:
+    """Лупа на шаге: когда крепёж этого вида встречается впервые (или это конфирмат) и
+    его входы видны на картинке. Возвращает саморезы узла для лупы или []."""
+    if not cur:
+        return []
+    seen = d.__dict__.setdefault("_zoomed_specs", set())
+    Rv = iso.view_rot(iso.VIEWS.get(view_name, 0))
+    vis = [s for s in cur if iso.visible(G_mat_vec(Rv, s.normal))]
+    if not vis:
+        return []
+    k = vis[0].key
+    if k in seen and k[0] != "confirmat":
+        return []
+    if commit:
+        seen.add(k)
+    return vis
+
+
+def G_mat_vec(R, v):
+    from .geom import mat_vec
+    return mat_vec(R, v)
+
+
 def step_dims(prj: Project, st, placed_before, fmt: Fmt, limit=3):
     """Размеры положения для шага: новые детали — относительно уже стоящих
     и относительно добавленных раньше в этом же шаге. Одинаковые подписи — один раз."""
@@ -583,8 +606,19 @@ def step_block(d: Doc, si: int, box, screws_by_step, placed_before: list[str]):
         styles = {pid: "old" for pid in placed_before}
         styles.update({pid: "new" for pid in st.add})
         ref = [prj.part(pid) for pid in styles]
-        shown = iso.draw_scene(c, prj, img_box, styles, cur, old, ref_parts=ref, extra=120, view=st.view,
-                               dims=[(a, b, o, t) for a, b, o, t, _ in dims])
+        zoom = zoom_screws(d, si, cur, st.view)
+        R = min(52.0, img_box[2] * 0.2, img_box[3] * 0.28)
+        main_box = img_box
+        if zoom:  # место под лупу — справа внизу рамки, основной рисунок ужимаем
+            main_box = (img_box[0], img_box[1], img_box[2] - 2 * R - 10, img_box[3])
+        shown, mv = iso.draw_scene(c, prj, main_box, styles, cur, old, ref_parts=ref, extra=120, view=st.view,
+                                   dims=[(a, b, o, t) for a, b, o, t, _ in dims])
+        if zoom:
+            from .model import EDGE_MIN
+            k = zoom[0].key
+            spec = d.fmt.t("confirmat_spec" if k[0] == "confirmat" else "screw_spec", spec=d.fmt.screw(*k))
+            center = (img_box[0] + img_box[2] - R - 2, img_box[1] + R + 24)
+            iso.draw_zoom(c, prj, mv, center, R, styles, zoom, d.fmt.t("zoom_edge", m=d.fmt.len(EDGE_MIN)), spec)
     elif st.focus:
         shown = focus_drawing(d, st.focus, img_box)
     else:
