@@ -88,3 +88,15 @@ def test_pdf_paginates_large_model(tmp_path):
     out = tmp_path / "big.pdf"
     build(prj, str(out))
     assert _pages(out) >= 18   # всё разошлось по страницам, а не наехало
+
+
+FIXTURES = sorted((__import__("pathlib").Path(__file__).parent / "fixtures").glob("*.json"))
+
+
+@pytest.mark.parametrize("path", FIXTURES, ids=lambda p: p.stem)
+def test_eval_fixtures_still_valid_and_render(path, tmp_path):
+    """Модели, которые Claude написал по реальным запросам, не должны ломаться от правок движка."""
+    from diyplan.model import errors_of, validate
+    prj = load(str(path))
+    assert errors_of(validate(prj)) == []
+    build(prj, str(tmp_path / "x.pdf"))

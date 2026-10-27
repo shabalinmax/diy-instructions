@@ -1,0 +1,303 @@
+{
+  "title": "Raised Planter Box",
+  "subtitle": "A simple 4 ft x 2 ft garden bed, two boards (11 in) tall, open bottom. Corner blocks inside make the joints strong.",
+  "difficulty": "Easy",
+  "time": "2-3 hours",
+  "lang": "en",
+  "units": "in",
+  "kerf": 0.125,
+  "safety": [
+    "outdoor"
+  ],
+  "stock": [
+    {
+      "id": "b2x6",
+      "kind": "board",
+      "name": "2x6 cedar or ground-contact treated lumber",
+      "thickness": 1.5,
+      "width": 5.5,
+      "length": 96
+    }
+  ],
+  "parts": [
+    {
+      "id": "post_fl",
+      "name": "Corner block",
+      "stock": "b2x6",
+      "size": [
+        1.5,
+        1.5,
+        11
+      ],
+      "origin": [
+        1.5,
+        1.5,
+        0
+      ]
+    },
+    {
+      "id": "post_bl",
+      "name": "Corner block",
+      "stock": "b2x6",
+      "size": [
+        1.5,
+        1.5,
+        11
+      ],
+      "origin": [
+        1.5,
+        21,
+        0
+      ]
+    },
+    {
+      "id": "post_fr",
+      "name": "Corner block",
+      "stock": "b2x6",
+      "size": [
+        1.5,
+        1.5,
+        11
+      ],
+      "origin": [
+        45,
+        1.5,
+        0
+      ]
+    },
+    {
+      "id": "post_br",
+      "name": "Corner block",
+      "stock": "b2x6",
+      "size": [
+        1.5,
+        1.5,
+        11
+      ],
+      "origin": [
+        45,
+        21,
+        0
+      ]
+    },
+    {
+      "id": "end_l_lo",
+      "name": "End board",
+      "stock": "b2x6",
+      "size": [
+        1.5,
+        21,
+        5.5
+      ],
+      "origin": [
+        0,
+        1.5,
+        0
+      ],
+      "fasten_to": [
+        "post_fl",
+        "post_bl"
+      ]
+    },
+    {
+      "id": "end_l_hi",
+      "name": "End board",
+      "stock": "b2x6",
+      "size": [
+        1.5,
+        21,
+        5.5
+      ],
+      "origin": [
+        0,
+        1.5,
+        5.5
+      ],
+      "fasten_to": [
+        "post_fl",
+        "post_bl"
+      ]
+    },
+    {
+      "id": "end_r_lo",
+      "name": "End board",
+      "stock": "b2x6",
+      "size": [
+        1.5,
+        21,
+        5.5
+      ],
+      "origin": [
+        46.5,
+        1.5,
+        0
+      ],
+      "fasten_to": [
+        "post_fr",
+        "post_br"
+      ]
+    },
+    {
+      "id": "end_r_hi",
+      "name": "End board",
+      "stock": "b2x6",
+      "size": [
+        1.5,
+        21,
+        5.5
+      ],
+      "origin": [
+        46.5,
+        1.5,
+        5.5
+      ],
+      "fasten_to": [
+        "post_fr",
+        "post_br"
+      ]
+    },
+    {
+      "id": "front_lo",
+      "name": "Side board",
+      "stock": "b2x6",
+      "size": [
+        48,
+        1.5,
+        5.5
+      ],
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "fasten_to": [
+        "post_fl",
+        "post_fr",
+        "end_l_lo",
+        "end_r_lo"
+      ]
+    },
+    {
+      "id": "front_hi",
+      "name": "Side board",
+      "stock": "b2x6",
+      "size": [
+        48,
+        1.5,
+        5.5
+      ],
+      "origin": [
+        0,
+        0,
+        5.5
+      ],
+      "fasten_to": [
+        "post_fl",
+        "post_fr",
+        "end_l_hi",
+        "end_r_hi"
+      ]
+    },
+    {
+      "id": "back_lo",
+      "name": "Side board",
+      "stock": "b2x6",
+      "size": [
+        48,
+        1.5,
+        5.5
+      ],
+      "origin": [
+        0,
+        22.5,
+        0
+      ],
+      "fasten_to": [
+        "post_bl",
+        "post_br",
+        "end_l_lo",
+        "end_r_lo"
+      ]
+    },
+    {
+      "id": "back_hi",
+      "name": "Side board",
+      "stock": "b2x6",
+      "size": [
+        48,
+        1.5,
+        5.5
+      ],
+      "origin": [
+        0,
+        22.5,
+        5.5
+      ],
+      "fasten_to": [
+        "post_bl",
+        "post_br",
+        "end_l_hi",
+        "end_r_hi"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "title": "Left end",
+      "add": [
+        "end_l_lo",
+        "end_l_hi",
+        "post_fl",
+        "post_bl"
+      ],
+      "view": "front-right",
+      "text": "Lay the two end boards flat on the ground, edges together. Set a corner block on each end of the boards, flush with the board ends and the top edge. Drive screws through the end boards into the blocks. Pre-drill to avoid splitting."
+    },
+    {
+      "title": "Right end",
+      "add": [
+        "end_r_lo",
+        "end_r_hi",
+        "post_fr",
+        "post_br"
+      ],
+      "view": "front-left",
+      "text": "Build the second end the same way, as a mirror image: the blocks go on the inside face."
+    },
+    {
+      "title": "Front side",
+      "add": [
+        "front_lo",
+        "front_hi"
+      ],
+      "view": "front-right",
+      "text": "Stand both ends up. Place the side boards so they cover the ends of the end boards. Screw into the corner blocks and into the end grain of the end boards."
+    },
+    {
+      "title": "Back side",
+      "add": [
+        "back_lo",
+        "back_hi"
+      ],
+      "view": "back-right",
+      "text": "Attach the back side boards the same way. Check the box is square: both diagonals must be equal."
+    }
+  ],
+  "tools": [
+    "Circular saw or miter saw",
+    "Drill/driver",
+    "1/8 in drill bit for pilot holes",
+    "Tape measure, pencil, speed square",
+    "Sandpaper 80 grit"
+  ],
+  "extra_materials": [
+    "Exterior-rated deck screws (coated or stainless)",
+    "Optional: landscape fabric or hardware cloth for the bottom"
+  ],
+  "tips": [
+    "Use cedar, redwood, or lumber treated for ground contact. Do not use OSB or particle board outdoors.",
+    "For vegetables, avoid old CCA-treated wood; modern ACQ/CA treated lumber is generally considered acceptable, or line the inside with plastic sheeting.",
+    "Level the ground before setting the box so it does not rock.",
+    "Lay cardboard or landscape fabric on the bottom to block weeds, then fill with soil mix."
+  ]
+}

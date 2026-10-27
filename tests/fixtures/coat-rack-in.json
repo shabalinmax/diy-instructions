@@ -1,0 +1,35 @@
+{
+  "title": "Wall Coat Rack with Shelf",
+  "subtitle": "A 30-inch wall-mounted coat rack: a hook board below, a shelf on top, held by two shaped end brackets.",
+  "lang": "en",
+  "units": "in",
+  "difficulty": "Easy",
+  "time": "2–3 hours",
+  "kerf": 0.125,
+  "safety": ["wall_mount", "load_bearing"],
+  "stock": [
+    {"id": "b1x6", "kind": "board", "name": "1×6 pine board (3/4″ × 5-1/2″)", "thickness": 0.75, "width": 5.5, "length": 72},
+    {"id": "b1x8", "kind": "board", "name": "1×8 pine board (3/4″ × 7-1/4″)", "thickness": 0.75, "width": 7.25, "length": 48}
+  ],
+  "parts": [
+    {"id": "back", "name": "Hook board", "stock": "b1x6", "size": [28.5, 0.75, 5.5], "origin": [0.75, 6.5, 0]},
+    {"id": "side_l", "name": "End bracket", "stock": "b1x6", "size": [0.75, 5.5, 5.5], "origin": [0, 1.75, 0],
+     "cuts": [{"from": [0, 2.5], "to": [3.5, 0]}]},
+    {"id": "side_r", "name": "End bracket", "stock": "b1x6", "size": [0.75, 5.5, 5.5], "origin": [29.25, 1.75, 0],
+     "cuts": [{"from": [0, 2.5], "to": [3.5, 0]}]},
+    {"id": "shelf", "name": "Shelf", "stock": "b1x8", "size": [30, 7.25, 0.75], "origin": [0, 0, 5.5]}
+  ],
+  "steps": [
+    {"title": "Shape the end brackets", "focus": ["side_l"], "text": "Mark the angled cut on both end brackets using the points on the parts drawing and cut off the lower front corner. Sand all cut edges."},
+    {"title": "First bracket", "add": ["back", "side_l"], "view": "front-left", "glue": true, "text": "Stand the hook board on its long edge. Glue the bracket to its end, back edges flush. Pre-drill 1/8″ pilot holes before driving screws."},
+    {"title": "Second bracket", "add": ["side_r"], "glue": true, "text": "Attach the second bracket the same way. Check with a square that both brackets sit at 90°."},
+    {"title": "Shelf", "add": ["shelf"], "glue": true, "text": "Lay the shelf on top, flush at the back and at both ends. The front overhangs the brackets. Screw down into the brackets and the hook board."}
+  ],
+  "tools": ["Jigsaw or hand saw", "Drill/driver", "1/8″ drill bit and countersink", "Tape measure, pencil, square", "Stud finder and level", "Sandpaper, 120 grit"],
+  "extra_materials": ["Wood glue", "5 coat hooks with screws", "2–3 wood screws #10 × 3″ (or wall anchors rated for the load) for mounting through the hook board", "Finish: paint, stain or clear polyurethane"],
+  "tips": [
+    "Mount through the hook board into at least two wall studs (16″ apart). If you must use drywall, use anchors rated well above the load.",
+    "Space the hooks evenly about 6″ apart, roughly 2″ below the shelf.",
+    "Finish all parts before attaching the hooks."
+  ]
+}
